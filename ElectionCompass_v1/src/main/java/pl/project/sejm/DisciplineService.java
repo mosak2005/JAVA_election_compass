@@ -61,4 +61,60 @@ public class DisciplineService {
         mpStats.values().stream().sorted(Comparator.comparingInt(r -> -r.rebellionCount)).limit(5)
                 .forEach(r -> System.out.printf("%-25s (%-10s) : %d razy głosował niezgodnie z klubem, do którego przynajeleży\n", r.name, r.club, r.rebellionCount));
     }
+    public static class ClubDisciplineResult {
+        public final String club;
+        public final double avgUnityPct;
+        public final int votingCount;
+
+        public ClubDisciplineResult(String club, double avgUnityPct, int votingCount) {
+            this.club = club;
+            this.avgUnityPct = avgUnityPct;
+            this.votingCount = votingCount;
+        }
+    }
+
+    public static class RebelResult {
+        public final String name;
+        public final String club;
+        public final int rebellionCount;
+
+        public RebelResult(String name, String club, int rebellionCount) {
+            this.name = name;
+            this.club = club;
+            this.rebellionCount = rebellionCount;
+        }
+    }
+
+    public static class DisciplineReport {
+        public final List<ClubDisciplineResult> clubsSorted;
+        public final List<RebelResult> topRebels;
+
+        public DisciplineReport(List<ClubDisciplineResult> clubsSorted, List<RebelResult> topRebels) {
+            this.clubsSorted = clubsSorted;
+            this.topRebels = topRebels;
+        }
+    }
+
+    public DisciplineReport buildReport(int rebelsLimit) {
+        List<ClubDisciplineResult> clubs = clubStats.entrySet().stream()
+                .map(e -> new ClubDisciplineResult(
+                        e.getKey(),
+                        e.getValue().getAvg(),
+                        e.getValue().votingCount
+                ))
+                .sorted((a, b) -> Double.compare(b.avgUnityPct, a.avgUnityPct))
+                .toList();
+
+        List<RebelResult> rebels = mpStats.values().stream()
+                .sorted((a, b) -> Integer.compare(b.rebellionCount, a.rebellionCount))
+                .limit(rebelsLimit)
+                .map(r -> new RebelResult(
+                        r.name != null ? r.name : "Nieznany",
+                        r.club != null ? r.club : "Brak klubu",
+                        r.rebellionCount
+                ))
+                .toList();
+
+        return new DisciplineReport(clubs, rebels);
+    }
 }

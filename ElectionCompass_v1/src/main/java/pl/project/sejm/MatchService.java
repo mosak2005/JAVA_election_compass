@@ -1,20 +1,44 @@
 package pl.project.sejm;
+
 import java.util.*;
 
 public class MatchService {
+
     public static class Stat {
         public int score = 0;
         public int total = 0;
         public double getPct() { return total == 0 ? 0 : (double) score / total * 100; }
     }
 
-    public void calculate(Map<Integer, String> userVotes, List<Voting> details, Map<Integer, MP> mpMap) {
+    public static class ClubResult {
+        public final String club;
+        public final double pct;
+        public ClubResult(String club, double pct) {
+            this.club = club;
+            this.pct = pct;
+        }
+    }
+
+    public static class MatchResult {
+        public final List<ClubResult> clubsSorted; 
+        public final String bestMp;
+        public final double bestMpPct;
+
+        public MatchResult(List<ClubResult> clubsSorted, String bestMp, double bestMpPct) {
+            this.clubsSorted = clubsSorted;
+            this.bestMp = bestMp;
+            this.bestMpPct = bestMpPct;
+        }
+    }
+
+    public MatchResult calculateResult(Map<Integer, String> userVotes, List<Voting> details, Map<Integer, MP> mpMap) {
         Map<String, Stat> clubStats = new HashMap<>();
         Map<String, Stat> mpStats = new HashMap<>();
 
         for (Voting v : details) {
             String myVote = userVotes.get(v.votingNumber);
             if (v.votes == null) continue;
+
             for (VoteDetail vd : v.votes) {
                 String mpKey;
                 try {
@@ -44,14 +68,37 @@ public class MatchService {
             }
         }
 
+        List<ClubResult> clubs = clubStats.entrySet().stream()
+                .map(e -> new ClubResult(e.getKey(), e.getValue().getPct()))
+                .sorted((a, b) -> Double.compare(b.pct, a.pct))
+                .toList();
+
+        String bestMp = null;
+        double bestPct = -1.0;
+        for (var e : mpStats.entrySet()) {
+            double pct = e.getValue().getPct();
+            if (pct > bestPct) {
+                bestPct = pct;
+                bestMp = e.getKey();
+            }
+        }
+        if (bestMp == null) {
+            bestMp = "Brak danych";
+            bestPct = 0.0;
+        }
+
+        return new MatchResult(clubs, bestMp, bestPct);
+    }
+
+    public void calculate(Map<Integer, String> userVotes, List<Voting> details, Map<Integer, MP> mpMap) {
+        MatchResult r = calculateResult(userVotes, details, mpMap);
+
         System.out.println("\n=== TWOJA ZGODNOŚĆ Z KLUBAMI ===");
-        clubStats.entrySet().stream()
-                .sorted((e1, e2) -> Double.compare(e2.getValue().getPct(), e1.getValue().getPct()))
-                .forEach(e -> System.out.printf("%-20s : %.2f%%\n", e.getKey(), e.getValue().getPct()));
+        for (ClubResult c : r.clubsSorted) {
+            System.out.printf("%-20s : %.2f%%\n", c.club, c.pct);
+        }
 
         System.out.println("\n=== TWÓJ POSEŁ BLIŹNIAK ===");
-        mpStats.entrySet().stream()
-                .max(Comparator.comparingDouble(e -> e.getValue().getPct()))
-                .ifPresent(e -> System.out.printf("%s : %.2f%%\n", e.getKey(), e.getValue().getPct()));
+        System.out.printf("%s : %.2f%%\n", r.bestMp, r.bestMpPct);
     }
 }
