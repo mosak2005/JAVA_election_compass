@@ -26,68 +26,54 @@ import java.util.concurrent.*;
 
 public class App extends Application {
 
-    // ===== SERWISY =====
     private final ElectionDataService dataService = new ElectionDataService();
     private final SejmApiClient api = new SejmApiClient();
 
-    // ===== HOST SERVICES (otwieranie linków w przeglądarce) =====
     private HostServices hostServices;
 
-    // ===== LINK WWW DO DRUKÓW =====
     private static final int TERM = 10;
     private static final String PRINT_WEB_PREFIX = "https://www.sejm.gov.pl/sejm" + TERM + ".nsf/druk.xsp?nr=";
 
-    // ===== QUIZ STATE =====
     private List<Voting> quiz = new ArrayList<>();
     private int index = 0;
-    private final Map<Integer, String> userVotes = new HashMap<>(); // votingNumber -> "YES"/"NO"/"ABSTAIN"
+    private final Map<Integer, String> userVotes = new HashMap<>(); 
 
-    // ===== TOP UI (status + progress) =====
     private Label status;
     private ProgressBar progressBar;
 
-    // ===== SCREENS =====
     private StackPane screens;
     private VBox startScreen;
     private VBox quizScreen;
     private VBox resultsScreen;
     private VBox disciplineScreen;
 
-    // ===== START SCREEN UI =====
     private Button startQuizBtn;
     private Button disciplineBtn;
 
-    // ===== QUIZ SCREEN UI =====
     private Label counter;
     private Label title;
     private Button backBtn;
     private Button yesBtn, noBtn, abstainBtn;
 
-    // info o ustawie/drukach
     private Button billInfoBtn;
 
-    // ===== RESULTS SCREEN UI =====
     private TableView<ClubRow> clubTable;
     private Label bestMpLabel;
     private Button againBtn;
     private Button goDisciplineFromResultsBtn;
 
-    // ===== DISCIPLINE SCREEN UI =====
     private TableView<ClubDiscRow> discClubTable;
     private TableView<RebelRow> rebelTable;
     private Button discBackBtn;
 
-    // ===== TASK BINDING =====
     private Task<?> runningTask;
 
-    // ===== TUNING =====
-    private static final int DETAILS_THREADS = 8; // 6–10 zwykle OK
+    private static final int DETAILS_THREADS = 8; 
 
     @Override
     public void start(Stage stage) {
         hostServices = getHostServices();
 
-        // ===== TOP =====
         Label header = new Label("Election Compass");
         header.setStyle("-fx-font-size: 26px; -fx-font-weight: bold;");
 
@@ -102,7 +88,6 @@ public class App extends Application {
         VBox top = new VBox(10, header, status, progressBar, new Separator());
         top.setPadding(new Insets(20, 24, 10, 24));
 
-        // ===== BUILD SCREENS =====
         buildStartScreen();
         buildQuizScreen();
         buildResultsScreen();
@@ -120,13 +105,21 @@ public class App extends Application {
         Scene scene = new Scene(root, 900, 660);
         stage.setTitle("Election Compass");
         stage.setScene(scene);
+        scene.setOnKeyPressed(e -> {
+            if (!quizScreen.isVisible()) return;
+
+            switch (e.getCode()) {
+                case DIGIT1, NUMPAD1 -> { if (!yesBtn.isDisable()) yesBtn.fire(); }
+                case DIGIT2, NUMPAD2 -> { if (!noBtn.isDisable()) noBtn.fire(); }
+                case DIGIT3, NUMPAD3 -> { if (!abstainBtn.isDisable()) abstainBtn.fire(); }
+                case BACK_SPACE -> { if (!backBtn.isDisable()) backBtn.fire(); }
+            }
+        });
         stage.show();
     }
 
-    // =========================================================
-    // SCREEN BUILDERS
-    // =========================================================
-
+  
+    //screen stuff
     private void buildStartScreen() {
         Label info = new Label(
                 "Quiz: wylosuj 5 głosowań i zobacz zgodność z klubami.\n" +
@@ -167,7 +160,6 @@ public class App extends Application {
         noBtn = new Button("NIE");
         abstainBtn = new Button("WSTRZYMUJĘ");
 
-        // zapisujemy KODY jak w API
         yesBtn.setOnAction(e -> answer("YES"));
         noBtn.setOnAction(e -> answer("NO"));
         abstainBtn.setOnAction(e -> answer("ABSTAIN"));
@@ -302,9 +294,7 @@ public class App extends Application {
         disciplineScreen.setMaxWidth(900);
     }
 
-    // =========================================================
-    // NAV / VISIBILITY
-    // =========================================================
+
 
     private void showStartScreen() {
         cancelRunningTaskIfAny();
@@ -340,9 +330,7 @@ public class App extends Application {
         disciplineScreen.setVisible(true); disciplineScreen.setManaged(true);
     }
 
-    // =========================================================
-    // QUIZ FLOW
-    // =========================================================
+
 
     private void startQuiz() {
         cancelRunningTaskIfAny();
@@ -461,9 +449,6 @@ public class App extends Application {
         abstainBtn.setDisable(!enabled);
     }
 
-    // =========================================================
-    // BILL INFO (TOPIC + LINKI WWW DO DRUKÓW)
-    // =========================================================
 
     private void showBillInfoForCurrentQuestion() {
         if (quiz == null || quiz.isEmpty()) return;
@@ -502,7 +487,7 @@ public class App extends Application {
                             Print p = api.getPrintDetails(nr);
                             if (p != null) prints.add(p);
                         } catch (Exception ignored) {
-                            // nie wywalamy całości przez 1 druk
+                            
                         }
                         updateProgress(i + 1, druki.size());
                     }
@@ -600,10 +585,6 @@ public class App extends Application {
             this.prints = prints == null ? List.of() : prints;
         }
     }
-
-    // =========================================================
-    // DISCIPLINE FLOW (ASYNC/PARALLEL DETAILS DOWNLOAD)
-    // =========================================================
 
     private void runDisciplineScan(int lastSittings) {
         cancelRunningTaskIfAny();
@@ -741,7 +722,7 @@ public class App extends Application {
                 }
         );
     }
-
+ //que?
     private void processVotingForDiscipline(
             Voting v,
             Map<String, ClubUnityTracker> clubStats,
@@ -787,9 +768,7 @@ public class App extends Application {
         }
     }
 
-    // =========================================================
-    // TASK HELPERS
-    // =========================================================
+
 
     private void bindAndRun(Task<?> task, Runnable onSuccess, Runnable onFail) {
         runningTask = task;
@@ -864,9 +843,7 @@ public class App extends Application {
         a.showAndWait();
     }
 
-    // =========================================================
-    // TABLE ROWS
-    // =========================================================
+
 
     public static class ClubRow {
         private final SimpleStringProperty club = new SimpleStringProperty();
@@ -910,9 +887,6 @@ public class App extends Application {
         public int getRebels() { return rebels.get(); }
     }
 
-    // =========================================================
-    // DISCIPLINE INTERNAL MODELS
-    // =========================================================
 
     private static class VotingRef {
         final int sitting;
