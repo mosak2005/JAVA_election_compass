@@ -89,16 +89,4 @@ public class MatchService {
 
         return new MatchResult(clubs, bestMp, bestPct);
     }
-
-    public void calculate(Map<Integer, String> userVotes, List<Voting> details, Map<Integer, MP> mpMap) {
-        MatchResult r = calculateResult(userVotes, details, mpMap);
-
-        System.out.println("\n=== TWOJA ZGODNOŚĆ Z KLUBAMI ===");
-        for (ClubResult c : r.clubsSorted) {
-            System.out.printf("%-20s : %.2f%%\n", c.club, c.pct);
-        }
-
-        System.out.println("\n=== TWÓJ POSEŁ BLIŹNIAK ===");
-        System.out.printf("%s : %.2f%%\n", r.bestMp, r.bestMpPct);
-    }
 }

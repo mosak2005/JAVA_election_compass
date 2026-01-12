@@ -12,6 +12,12 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.effect.ColorAdjust;
+import javafx.scene.layout.BackgroundPosition;
+import javafx.scene.layout.BackgroundRepeat;
+import javafx.scene.layout.BackgroundSize;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import pl.project.sejm.MatchService;
@@ -36,10 +42,13 @@ public class App extends Application {
 
     private List<Voting> quiz = new ArrayList<>();
     private int index = 0;
-    private final Map<Integer, String> userVotes = new HashMap<>(); 
+    private final Map<Integer, String> userVotes = new HashMap<>();
 
     private Label status;
     private ProgressBar progressBar;
+
+    private BorderPane root;
+    private ImageView backgroundImageView;
 
     private StackPane screens;
     private VBox startScreen;
@@ -68,17 +77,18 @@ public class App extends Application {
 
     private Task<?> runningTask;
 
-    private static final int DETAILS_THREADS = 8; 
+    private static final int DETAILS_THREADS = 8;
+    private static final double BACKGROUND_BRIGHTNESS = -0.6;
 
     @Override
     public void start(Stage stage) {
         hostServices = getHostServices();
 
         Label header = new Label("Election Compass");
-        header.setStyle("-fx-font-size: 26px; -fx-font-weight: bold;");
+        header.setStyle("-fx-font-size: 26px; -fx-font-weight: bold; -fx-text-fill: white;");
 
         status = new Label("Status: gotowy");
-        status.setStyle("-fx-opacity: 0.85;");
+        status.setStyle("-fx-opacity: 0.85; -fx-text-fill: white;");
 
         progressBar = new ProgressBar(0);
         progressBar.setMaxWidth(Double.MAX_VALUE);
@@ -98,11 +108,31 @@ public class App extends Application {
 
         showStartScreen();
 
-        BorderPane root = new BorderPane();
+        root = new BorderPane();
         root.setTop(top);
         root.setCenter(screens);
 
-        Scene scene = new Scene(root, 900, 660);
+        backgroundImageView = new ImageView();
+        backgroundImageView.setPreserveRatio(false);
+        backgroundImageView.setSmooth(true);
+        backgroundImageView.setMouseTransparent(true);
+
+        try {
+            java.net.URL defaultBg = getClass().getResource("/background.jpg");
+            if (defaultBg != null) {
+                setBackgroundImage("classpath:/background.jpg");
+            } else {
+                java.net.URL defaultPng = getClass().getResource("/background.png");
+                if (defaultPng != null) setBackgroundImage("classpath:/background.png");
+            }
+        } catch (Exception ignored) {}
+
+        StackPane container = new StackPane(backgroundImageView, root);
+        Scene scene = new Scene(container, 900, 660);
+
+        backgroundImageView.fitWidthProperty().bind(scene.widthProperty());
+        backgroundImageView.fitHeightProperty().bind(scene.heightProperty());
+
         stage.setTitle("Election Compass");
         stage.setScene(scene);
         scene.setOnKeyPressed(e -> {
@@ -118,15 +148,14 @@ public class App extends Application {
         stage.show();
     }
 
-  
-    //screen stuff
     private void buildStartScreen() {
         Label info = new Label(
-                "Quiz: wylosuj 5 głosowań i zobacz zgodność z klubami.\n" +
-                "Dyscyplina: policz spójność klubów i 'buntowników' (wolniejsze, pobiera dużo danych)."
+                "Quiz: wylosuj 10 głosowań i zobacz zgodność z klubami.\n" +
+                        "Dyscyplina: policz spójność klubów i 'buntowników' (wolniejsze, pobiera dużo danych)."
         );
         info.setWrapText(true);
         info.setMaxWidth(720);
+        info.setStyle("-fx-text-fill: white;");
 
         startQuizBtn = new Button("Start quiz");
         startQuizBtn.setDefaultButton(true);
@@ -145,11 +174,11 @@ public class App extends Application {
 
     private void buildQuizScreen() {
         counter = new Label("");
-        counter.setStyle("-fx-font-size: 14px; -fx-opacity: 0.8;");
+        counter.setStyle("-fx-font-size: 14px; -fx-opacity: 0.8; -fx-text-fill: white;");
 
         title = new Label("");
         title.setWrapText(true);
-        title.setStyle("-fx-font-size: 18px; -fx-font-weight: 600;");
+        title.setStyle("-fx-font-size: 18px; -fx-font-weight: 600; -fx-text-fill: white;");
         title.setMaxWidth(820);
 
         billInfoBtn = new Button("O czym jest ustawa? (druki)");
@@ -190,7 +219,7 @@ public class App extends Application {
 
     private void buildResultsScreen() {
         Label resTitle = new Label("Wyniki");
-        resTitle.setStyle("-fx-font-size: 20px; -fx-font-weight: 700;");
+        resTitle.setStyle("-fx-font-size: 20px; -fx-font-weight: 700; -fx-text-fill: white;");
 
         clubTable = new TableView<>();
         clubTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
@@ -211,7 +240,7 @@ public class App extends Application {
         clubTable.getColumns().addAll(clubCol, pctCol);
 
         bestMpLabel = new Label("");
-        bestMpLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 600;");
+        bestMpLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 600; -fx-text-fill: white;");
 
         againBtn = new Button("Nowy quiz");
         againBtn.setOnAction(e -> startQuiz());
@@ -233,10 +262,10 @@ public class App extends Application {
 
     private void buildDisciplineScreen() {
         Label t = new Label("Dyscyplina partyjna");
-        t.setStyle("-fx-font-size: 20px; -fx-font-weight: 700;");
+        t.setStyle("-fx-font-size: 20px; -fx-font-weight: 700; -fx-text-fill: white;");
 
         Label hint = new Label("Spójność = jak często klub głosuje jednym głosem (średnio po głosowaniach).");
-        hint.setStyle("-fx-opacity: 0.85;");
+        hint.setStyle("-fx-opacity: 0.85; -fx-text-fill: white;");
         hint.setWrapText(true);
         hint.setMaxWidth(820);
 
@@ -262,7 +291,7 @@ public class App extends Application {
         discClubTable.getColumns().addAll(c1, c2, c3);
 
         Label rebelsLabel = new Label("Top buntowników (liczymy tylko głosowania, gdzie klub był ≥75% zgodny):");
-        rebelsLabel.setStyle("-fx-opacity: 0.85;");
+        rebelsLabel.setStyle("-fx-opacity: 0.85; -fx-text-fill: white;");
 
         rebelTable = new TableView<>();
         rebelTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
@@ -294,16 +323,12 @@ public class App extends Application {
         disciplineScreen.setMaxWidth(900);
     }
 
-
-
     private void showStartScreen() {
         cancelRunningTaskIfAny();
-
         startScreen.setVisible(true);  startScreen.setManaged(true);
         quizScreen.setVisible(false);  quizScreen.setManaged(false);
         resultsScreen.setVisible(false); resultsScreen.setManaged(false);
         disciplineScreen.setVisible(false); disciplineScreen.setManaged(false);
-
         setTopIdle("Status: gotowy");
         startQuizBtn.setDisable(false);
         disciplineBtn.setDisable(false);
@@ -330,32 +355,25 @@ public class App extends Application {
         disciplineScreen.setVisible(true); disciplineScreen.setManaged(true);
     }
 
-
-
     private void startQuiz() {
         cancelRunningTaskIfAny();
-
         quiz.clear();
         userVotes.clear();
         index = 0;
-
         showQuizScreen();
         setVotingButtonsEnabled(false);
         backBtn.setDisable(true);
         billInfoBtn.setDisable(true);
-
         counter.setText("");
         title.setText("Losuję pytania…");
-
         Task<List<Voting>> task = new Task<>() {
             @Override
             protected List<Voting> call() throws Exception {
                 updateMessage("Status: pobieram i losuję pytania…");
                 updateProgress(-1, 1);
-                return dataService.pickQuizVotings(10, 5);
+                return dataService.pickQuizVotings(10, 10);
             }
         };
-
         bindAndRun(task,
                 () -> {
                     quiz = task.getValue();
@@ -372,7 +390,7 @@ public class App extends Application {
                 },
                 () -> {
                     setTopIdle("Błąd: nie udało się pobrać/losować pytań.");
-                    showError("Nie udało się pobrać/losować pytań.", task.getException());
+                    showNetworkFriendlyError(task.getException(), "Nie udało się pobrać/losować pytań.");
                     showStartScreen();
                 }
         );
@@ -389,7 +407,6 @@ public class App extends Application {
     private void answer(String voteCode) {
         Voting v = quiz.get(index);
         userVotes.put(v.votingNumber, voteCode);
-
         index++;
         if (index >= quiz.size()) {
             finishAndComputeResults();
@@ -411,7 +428,6 @@ public class App extends Application {
         billInfoBtn.setDisable(true);
         counter.setText("");
         title.setText("Liczenie dopasowania…");
-
         Task<MatchService.MatchResult> task = new Task<>() {
             @Override
             protected MatchService.MatchResult call() throws Exception {
@@ -420,24 +436,20 @@ public class App extends Application {
                 return dataService.computeMatchResult(quiz, userVotes);
             }
         };
-
         bindAndRun(task,
                 () -> {
                     MatchService.MatchResult r = task.getValue();
                     setTopIdle("Status: gotowe ✅");
-
                     List<ClubRow> rows = new ArrayList<>();
                     for (var c : r.clubsSorted) rows.add(new ClubRow(c.club, c.pct));
                     clubTable.setItems(FXCollections.observableArrayList(rows));
-
                     bestMpLabel.setText(String.format(Locale.US,
                             "Twój poseł bliźniak: %s (%.2f%%)", r.bestMp, r.bestMpPct));
-
                     showResultsScreen();
                 },
                 () -> {
                     setTopIdle("Błąd: nie udało się policzyć wyniku.");
-                    showError("Nie udało się policzyć wyniku.", task.getException());
+                    showNetworkFriendlyError(task.getException(), "Nie udało się policzyć wyniku.");
                     showStartScreen();
                 }
         );
@@ -449,54 +461,40 @@ public class App extends Application {
         abstainBtn.setDisable(!enabled);
     }
 
-
     private void showBillInfoForCurrentQuestion() {
         if (quiz == null || quiz.isEmpty()) return;
         if (index < 0 || index >= quiz.size()) return;
-
         Voting current = quiz.get(index);
-
         setVotingButtonsEnabled(false);
         backBtn.setDisable(true);
         billInfoBtn.setDisable(true);
-
         Task<BillInfo> task = new Task<>() {
             @Override
             protected BillInfo call() throws Exception {
                 updateMessage("Status: pobieram opis głosowania…");
                 updateProgress(-1, 1);
-
                 Voting details = api.getVotingDetails(current.sitting, current.votingNumber);
-
                 String vTitle = details != null && details.title != null ? details.title : current.title;
                 String topic = details != null ? details.topic : null;
                 if (topic == null || topic.isBlank()) topic = "(Brak pola topic w API dla tego głosowania)";
-
                 List<String> druki = SejmUtils.extractDruki(vTitle);
                 List<Print> prints = new ArrayList<>();
-
                 if (!druki.isEmpty()) {
                     updateMessage("Status: pobieram tytuły druków…");
                     updateProgress(0, druki.size());
-
                     for (int i = 0; i < druki.size(); i++) {
                         if (isCancelled()) return null;
-
                         String nr = druki.get(i);
                         try {
                             Print p = api.getPrintDetails(nr);
                             if (p != null) prints.add(p);
-                        } catch (Exception ignored) {
-                            
-                        }
+                        } catch (Exception ignored) {}
                         updateProgress(i + 1, druki.size());
                     }
                 }
-
                 return new BillInfo(vTitle, topic, druki, prints);
             }
         };
-
         bindAndRun(task,
                 () -> {
                     BillInfo info = task.getValue();
@@ -505,62 +503,54 @@ public class App extends Application {
                         restoreQuizControls();
                         return;
                     }
-
                     Alert a = new Alert(Alert.AlertType.INFORMATION);
                     a.setTitle("Informacje o ustawie");
                     a.setHeaderText(info.title != null ? info.title : "Głosowanie");
-
                     Label topicLabel = new Label("OPIS / TOPIC:");
-                    topicLabel.setStyle("-fx-font-weight: bold;");
+                    // Kolory białe dla alertu
+                    topicLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: black;");
                     Label topic = new Label(info.topic == null ? "(brak)" : info.topic);
                     topic.setWrapText(true);
-
+                    topic.setStyle("-fx-text-fill: black;");
                     Label drukiLabel = new Label("DRUKI:");
-                    drukiLabel.setStyle("-fx-font-weight: bold;");
-
+                    drukiLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: black;");
                     VBox drukiBox = new VBox(8);
                     if (info.druki.isEmpty()) {
-                        drukiBox.getChildren().add(new Label("(nie znaleziono numerów druków w tytule)"));
+                        Label none = new Label("(nie znaleziono numerów druków w tytule)");
+                        none.setStyle("-fx-text-fill: black;");
+                        drukiBox.getChildren().add(none);
                     } else {
                         for (String nr : info.druki) {
                             String webUrl = PRINT_WEB_PREFIX + nr;
-
                             Hyperlink web = new Hyperlink("Druk " + nr);
                             web.setOnAction(e -> hostServices.showDocument(webUrl));
-
                             String titleFromApi = info.prints.stream()
                                     .filter(p -> nr.equals(p.number))
                                     .map(p -> p.title)
                                     .findFirst()
                                     .orElse(null);
-
-                            Label t = new Label(titleFromApi != null ? titleFromApi : "");
-                            t.setWrapText(true);
-                            t.setStyle("-fx-opacity: 0.85;");
-
-                            VBox one = new VBox(3, web, t);
+                            Label tLabel = new Label(titleFromApi != null ? titleFromApi : "");
+                            tLabel.setWrapText(true);
+                            tLabel.setStyle("-fx-opacity: 0.85; -fx-text-fill: black;");
+                            VBox one = new VBox(3, web, tLabel);
                             one.setPadding(new Insets(4, 0, 4, 0));
                             drukiBox.getChildren().add(one);
                         }
                     }
-
                     VBox content = new VBox(10, topicLabel, topic, new Separator(), drukiLabel, drukiBox);
                     content.setPrefWidth(760);
-
                     ScrollPane sp = new ScrollPane(content);
                     sp.setFitToWidth(true);
                     sp.setPrefViewportHeight(440);
-
                     a.getDialogPane().setContent(sp);
                     a.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
                     a.showAndWait();
-
                     setTopIdle("Status: odpowiadaj na pytania.");
                     restoreQuizControls();
                 },
                 () -> {
                     setTopIdle("Błąd: nie udało się pobrać opisu ustawy.");
-                    showError("Nie udało się pobrać opisu ustawy.", task.getException());
+                    showNetworkFriendlyError(task.getException(), "Nie udało się pobrać opisu ustawy.");
                     restoreQuizControls();
                 }
         );
@@ -577,10 +567,8 @@ public class App extends Application {
         final String topic;
         final List<String> druki;
         final List<Print> prints;
-
         BillInfo(String title, String topic, List<String> druki, List<Print> prints) {
-            this.title = title;
-            this.topic = topic;
+            this.title = title; this.topic = topic;
             this.druki = druki == null ? List.of() : druki;
             this.prints = prints == null ? List.of() : prints;
         }
@@ -588,99 +576,71 @@ public class App extends Application {
 
     private void runDisciplineScan(int lastSittings) {
         cancelRunningTaskIfAny();
-
         showDisciplineScreen();
         discClubTable.setItems(FXCollections.observableArrayList());
         rebelTable.setItems(FXCollections.observableArrayList());
-
         Task<DisciplineReport> task = new Task<>() {
             @Override
             protected DisciplineReport call() throws Exception {
                 updateMessage("Status: pobieram listę posiedzeń…");
                 updateProgress(-1, 1);
-
                 List<Integer> sittings = api.getSittingNumbers();
                 if (sittings.isEmpty()) return new DisciplineReport(List.of(), List.of());
-
                 int from = Math.max(0, sittings.size() - lastSittings);
                 List<Integer> recent = sittings.subList(from, sittings.size());
-
                 updateMessage("Status: zbieram listę głosowań…");
                 updateProgress(-1, 1);
-
                 List<VotingRef> refs = new ArrayList<>();
                 for (int i = 0; i < recent.size(); i++) {
                     if (isCancelled()) return null;
-
                     int sitting = recent.get(i);
                     updateMessage(String.format(Locale.US,
                             "Status: posiedzenie %d/%d — pobieram listę głosowań…",
                             (i + 1), recent.size()));
-
                     List<Voting> votings = api.getVotings(sitting);
                     for (Voting v : votings) refs.add(new VotingRef(sitting, v.votingNumber));
                 }
-
                 int total = refs.size();
                 if (total == 0) return new DisciplineReport(List.of(), List.of());
-
                 updateMessage(String.format(Locale.US,
                         "Status: pobieram detale głosowań równolegle (%d wątków)…", DETAILS_THREADS));
                 updateProgress(0, total);
-
                 ExecutorService pool = Executors.newFixedThreadPool(DETAILS_THREADS);
                 CompletionService<VotingDetailsResult> cs = new ExecutorCompletionService<>(pool);
-
                 for (VotingRef ref : refs) {
                     cs.submit(() -> {
                         try {
                             Voting details = api.getVotingDetails(ref.sitting, ref.votingNumber);
                             return VotingDetailsResult.ok(details);
-                        } catch (Exception ex) {
-                            return VotingDetailsResult.fail(ex);
-                        }
+                        } catch (Exception ex) { return VotingDetailsResult.fail(ex); }
                     });
                 }
-
                 List<Voting> downloaded = new ArrayList<>(total);
                 int done = 0, failed = 0;
-
                 try {
                     for (int i = 0; i < total; i++) {
                         if (isCancelled()) return null;
-
                         VotingDetailsResult r = cs.take().get();
-                        if (r.details != null) downloaded.add(r.details);
-                        else failed++;
-
-                        done++;
-                        updateProgress(done, total);
-
+                        if (r.details != null) downloaded.add(r.details); else failed++;
+                        done++; updateProgress(done, total);
                         if (done % 25 == 0 || done == total) {
                             updateMessage(String.format(Locale.US,
                                     "Status: pobrano detale %d/%d (błędy: %d)…", done, total, failed));
                         }
                     }
-                } finally {
-                    pool.shutdownNow();
-                }
-
+                } finally { pool.shutdownNow(); }
                 updateMessage("Status: liczę spójność klubów i buntowników…");
                 updateProgress(-1, 1);
-
                 Map<String, ClubUnityTracker> clubStats = new HashMap<>();
                 Map<Integer, MPRebelTracker> mpStats = new HashMap<>();
-
                 for (Voting v : downloaded) {
                     if (isCancelled()) return null;
                     processVotingForDiscipline(v, clubStats, mpStats);
                 }
-
                 List<ClubDisc> clubs = clubStats.entrySet().stream()
                         .map(e -> new ClubDisc(e.getKey(), e.getValue().getAvg(), e.getValue().votingCount))
                         .sorted((a, b) -> Double.compare(b.avgUnityPct, a.avgUnityPct))
                         .toList();
-
                 List<Rebel> rebels = mpStats.values().stream()
                         .sorted((a, b) -> Integer.compare(b.rebellionCount, a.rebellionCount))
                         .limit(10)
@@ -688,73 +648,46 @@ public class App extends Application {
                                 x.name != null && !x.name.isBlank() ? x.name : "Nieznany",
                                 x.club != null ? x.club : "Brak klubu",
                                 x.rebellionCount
-                        ))
-                        .toList();
-
+                        )).toList();
                 return new DisciplineReport(clubs, rebels);
             }
         };
-
         bindAndRun(task,
                 () -> {
                     DisciplineReport rep = task.getValue();
-                    if (rep == null) {
-                        setTopIdle("Status: przerwano.");
-                        return;
-                    }
-
+                    if (rep == null) { setTopIdle("Status: przerwano."); return; }
                     List<ClubDiscRow> rows = rep.clubsSorted.stream()
                             .map(x -> new ClubDiscRow(x.club, x.avgUnityPct, x.votingCount))
                             .toList();
                     discClubTable.setItems(FXCollections.observableArrayList(rows));
-
                     List<RebelRow> rebelRows = rep.topRebels.stream()
                             .map(x -> new RebelRow(x.name, x.club, x.rebellionCount))
                             .toList();
                     rebelTable.setItems(FXCollections.observableArrayList(rebelRows));
-
                     setTopIdle("Status: gotowe ✅");
                 },
                 () -> {
                     setTopIdle("Błąd: nie udało się policzyć dyscypliny.");
-                    showError("Nie udało się policzyć dyscypliny.", task.getException());
+                    showNetworkFriendlyError(task.getException(), "Nie udało się policzyć dyscypliny.");
                     showStartScreen();
                 }
         );
     }
- //que?
-    private void processVotingForDiscipline(
-            Voting v,
-            Map<String, ClubUnityTracker> clubStats,
-            Map<Integer, MPRebelTracker> mpStats
-    ) {
+
+    private void processVotingForDiscipline(Voting v, Map<String, ClubUnityTracker> clubStats, Map<Integer, MPRebelTracker> mpStats) {
         if (v == null || v.votes == null) return;
-
         Map<String, List<VoteDetail>> byClub = new HashMap<>();
-        for (VoteDetail vd : v.votes) {
-            byClub.computeIfAbsent(vd.club, k -> new ArrayList<>()).add(vd);
-        }
-
+        for (VoteDetail vd : v.votes) byClub.computeIfAbsent(vd.club, k -> new ArrayList<>()).add(vd);
         for (Map.Entry<String, List<VoteDetail>> entry : byClub.entrySet()) {
             String club = entry.getKey();
             if (club == null || "niez.".equalsIgnoreCase(club)) continue;
-
             List<VoteDetail> votes = entry.getValue();
             if (votes.size() < 3) continue;
-
             Map<String, Integer> counts = new HashMap<>();
-            for (VoteDetail vd : votes) {
-                counts.put(vd.vote, counts.getOrDefault(vd.vote, 0) + 1);
-            }
-
-            String majorityVote = counts.entrySet().stream()
-                    .max(Map.Entry.comparingByValue())
-                    .map(Map.Entry::getKey)
-                    .orElse("ABSENT");
-
+            for (VoteDetail vd : votes) counts.put(vd.vote, counts.getOrDefault(vd.vote, 0) + 1);
+            String majorityVote = counts.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse("ABSENT");
             double unity = (double) counts.getOrDefault(majorityVote, 0) / votes.size() * 100.0;
             clubStats.computeIfAbsent(club, k -> new ClubUnityTracker()).add(unity);
-
             if (unity >= 75.0) {
                 for (VoteDetail vd : votes) {
                     if (!majorityVote.equals(vd.vote) && !"ABSENT".equals(vd.vote)) {
@@ -768,91 +701,62 @@ public class App extends Application {
         }
     }
 
-
-
     private void bindAndRun(Task<?> task, Runnable onSuccess, Runnable onFail) {
         runningTask = task;
-
         if (startQuizBtn != null) startQuizBtn.setDisable(true);
         if (disciplineBtn != null) disciplineBtn.setDisable(true);
         if (goDisciplineFromResultsBtn != null) goDisciplineFromResultsBtn.setDisable(true);
-
-        progressBar.setVisible(true);
-        progressBar.setManaged(true);
-
-        status.textProperty().unbind();
-        progressBar.progressProperty().unbind();
-
+        progressBar.setVisible(true); progressBar.setManaged(true);
+        status.textProperty().unbind(); progressBar.progressProperty().unbind();
         status.textProperty().bind(task.messageProperty());
         progressBar.progressProperty().bind(task.progressProperty());
-
-        task.setOnSucceeded(e -> {
-            cleanupTaskBinding();
-            onSuccess.run();
-        });
-
-        task.setOnFailed(e -> {
-            cleanupTaskBinding();
-            onFail.run();
-        });
-
-        task.setOnCancelled(e -> {
-            cleanupTaskBinding();
-            setTopIdle("Status: przerwano.");
-        });
-
-        Thread t = new Thread(task);
-        t.setDaemon(true);
-        t.start();
+        task.setOnSucceeded(e -> { cleanupTaskBinding(); onSuccess.run(); });
+        task.setOnFailed(e -> { cleanupTaskBinding(); onFail.run(); });
+        task.setOnCancelled(e -> { cleanupTaskBinding(); setTopIdle("Status: przerwano."); });
+        Thread tThread = new Thread(task); tThread.setDaemon(true); tThread.start();
     }
 
     private void cleanupTaskBinding() {
-        runningTask = null;
-
-        status.textProperty().unbind();
-        progressBar.progressProperty().unbind();
-
-        progressBar.setVisible(false);
-        progressBar.setManaged(false);
-
+        runningTask = null; status.textProperty().unbind(); progressBar.progressProperty().unbind();
+        progressBar.setVisible(false); progressBar.setManaged(false);
         if (startQuizBtn != null) startQuizBtn.setDisable(false);
         if (disciplineBtn != null) disciplineBtn.setDisable(false);
         if (goDisciplineFromResultsBtn != null) goDisciplineFromResultsBtn.setDisable(false);
     }
 
     private void cancelRunningTaskIfAny() {
-        if (runningTask != null) {
-            runningTask.cancel();
-            runningTask = null;
-        }
+        if (runningTask != null) { runningTask.cancel(); runningTask = null; }
     }
 
     private void setTopIdle(String text) {
-        status.textProperty().unbind();
-        status.setText(text);
-        progressBar.progressProperty().unbind();
-        progressBar.setVisible(false);
-        progressBar.setManaged(false);
+        status.textProperty().unbind(); status.setText(text);
+        progressBar.progressProperty().unbind(); progressBar.setVisible(false); progressBar.setManaged(false);
     }
 
     private void showError(String header, Throwable ex) {
         Alert a = new Alert(Alert.AlertType.ERROR);
-        a.setTitle("Błąd");
-        a.setHeaderText(header);
+        a.setTitle("Błąd"); a.setHeaderText(header);
         a.setContentText(ex == null ? "Nieznany błąd." : String.valueOf(ex.getMessage()));
         a.showAndWait();
     }
 
-
+    private void showNetworkFriendlyError(Throwable ex, String fallbackMessage) {
+        if (ex == null) { showError("Błąd sieci", new Exception(fallbackMessage)); return; }
+        Throwable rootEx = ex; while (rootEx.getCause() != null) rootEx = rootEx.getCause();
+        if (rootEx instanceof pl.project.sejm.SejmApiException) {
+            pl.project.sejm.SejmApiException sae = (pl.project.sejm.SejmApiException) rootEx;
+            if (sae.isNetworkError()) {
+                showError("Problem z połączeniem sieciowym", new Exception("Nie można połączyć się z API. Sprawdź połączenie internetowe i spróbuj ponownie."));
+                return;
+            }
+        }
+        showError(fallbackMessage, ex instanceof Exception ? ex : new Exception(String.valueOf(ex)));
+    }
 
     public static class ClubRow {
         private final SimpleStringProperty club = new SimpleStringProperty();
         private final SimpleDoubleProperty pct = new SimpleDoubleProperty();
-
-        public ClubRow(String club, double pct) {
-            this.club.set(club);
-            this.pct.set(pct);
-        }
+        public ClubRow(String club, double pct) { this.club.set(club); this.pct.set(pct); }
         public String getClub() { return club.get(); }
         public double getPct() { return pct.get(); }
     }
@@ -861,12 +765,7 @@ public class App extends Application {
         private final SimpleStringProperty club = new SimpleStringProperty();
         private final SimpleDoubleProperty avg = new SimpleDoubleProperty();
         private final SimpleIntegerProperty count = new SimpleIntegerProperty();
-
-        public ClubDiscRow(String club, double avg, int count) {
-            this.club.set(club);
-            this.avg.set(avg);
-            this.count.set(count);
-        }
+        public ClubDiscRow(String club, double avg, int count) { this.club.set(club); this.avg.set(avg); this.count.set(count); }
         public String getClub() { return club.get(); }
         public double getAvg() { return avg.get(); }
         public int getCount() { return count.get(); }
@@ -876,79 +775,45 @@ public class App extends Application {
         private final SimpleStringProperty name = new SimpleStringProperty();
         private final SimpleStringProperty club = new SimpleStringProperty();
         private final SimpleIntegerProperty rebels = new SimpleIntegerProperty();
-
-        public RebelRow(String name, String club, int rebels) {
-            this.name.set(name);
-            this.club.set(club);
-            this.rebels.set(rebels);
-        }
+        public RebelRow(String name, String club, int rebels) { this.name.set(name); this.club.set(club); this.rebels.set(rebels); }
         public String getName() { return name.get(); }
         public String getClub() { return club.get(); }
         public int getRebels() { return rebels.get(); }
     }
 
+    private static class VotingRef { final int sitting; final int votingNumber; VotingRef(int sitting, int votingNumber) { this.sitting = sitting; this.votingNumber = votingNumber; } }
+    private static class ClubUnityTracker { double sumOfPercentages = 0; int votingCount = 0; void add(double pct) { sumOfPercentages += pct; votingCount++; } double getAvg() { return votingCount == 0 ? 0 : sumOfPercentages / votingCount; } }
+    private static class MPRebelTracker { String name, club; int rebellionCount = 0; }
+    private static class ClubDisc { final String club; final double avgUnityPct; final int votingCount; ClubDisc(String club, double avgUnityPct, int votingCount) { this.club = club; this.avgUnityPct = avgUnityPct; this.votingCount = votingCount; } }
+    private static class Rebel { final String name; final String club; final int rebellionCount; Rebel(String name, String club, int rebellionCount) { this.name = name; this.club = club; this.rebellionCount = rebellionCount; } }
+    private static class DisciplineReport { final List<ClubDisc> clubsSorted; final List<Rebel> topRebels; DisciplineReport(List<ClubDisc> clubsSorted, List<Rebel> topRebels) { this.clubsSorted = clubsSorted; this.topRebels = topRebels; } }
+    private static class VotingDetailsResult { final Voting details; final Exception error; private VotingDetailsResult(Voting details, Exception error) { this.details = details; this.error = error; } static VotingDetailsResult ok(Voting v) { return new VotingDetailsResult(v, null); } static VotingDetailsResult fail(Exception ex) { return new VotingDetailsResult(null, ex); } }
 
-    private static class VotingRef {
-        final int sitting;
-        final int votingNumber;
-        VotingRef(int sitting, int votingNumber) {
-            this.sitting = sitting;
-            this.votingNumber = votingNumber;
-        }
-    }
-
-    private static class ClubUnityTracker {
-        double sumOfPercentages = 0;
-        int votingCount = 0;
-        void add(double pct) { sumOfPercentages += pct; votingCount++; }
-        double getAvg() { return votingCount == 0 ? 0 : sumOfPercentages / votingCount; }
-    }
-
-    private static class MPRebelTracker {
-        String name, club;
-        int rebellionCount = 0;
-    }
-
-    private static class ClubDisc {
-        final String club;
-        final double avgUnityPct;
-        final int votingCount;
-        ClubDisc(String club, double avgUnityPct, int votingCount) {
-            this.club = club;
-            this.avgUnityPct = avgUnityPct;
-            this.votingCount = votingCount;
-        }
-    }
-
-    private static class Rebel {
-        final String name;
-        final String club;
-        final int rebellionCount;
-        Rebel(String name, String club, int rebellionCount) {
-            this.name = name;
-            this.club = club;
-            this.rebellionCount = rebellionCount;
-        }
-    }
-
-    private static class DisciplineReport {
-        final List<ClubDisc> clubsSorted;
-        final List<Rebel> topRebels;
-        DisciplineReport(List<ClubDisc> clubsSorted, List<Rebel> topRebels) {
-            this.clubsSorted = clubsSorted;
-            this.topRebels = topRebels;
-        }
-    }
-
-    private static class VotingDetailsResult {
-        final Voting details;
-        final Exception error;
-        private VotingDetailsResult(Voting details, Exception error) {
-            this.details = details;
-            this.error = error;
-        }
-        static VotingDetailsResult ok(Voting v) { return new VotingDetailsResult(v, null); }
-        static VotingDetailsResult fail(Exception ex) { return new VotingDetailsResult(null, ex); }
+    public void setBackgroundImage(String path) {
+        if (path == null || path.isBlank() || root == null) return;
+        try {
+            Image img;
+            if (path.startsWith("classpath:")) {
+                String res = path.substring("classpath:".length());
+                java.net.URL url = getClass().getResource(res);
+                if (url == null) throw new IllegalArgumentException("Resource not found: " + res);
+                img = new Image(url.toExternalForm());
+            } else {
+                String urlStr = path;
+                if (!urlStr.startsWith("file:") && !urlStr.startsWith("http:") && !urlStr.startsWith("https:")) urlStr = "file:" + urlStr;
+                img = new Image(urlStr);
+            }
+            if (backgroundImageView != null) {
+                backgroundImageView.setImage(img);
+                ColorAdjust ca = new ColorAdjust();
+                ca.setBrightness(BACKGROUND_BRIGHTNESS);
+                backgroundImageView.setEffect(ca);
+            } else {
+                BackgroundSize bsize = new BackgroundSize(100, 100, true, true, false, true);
+                BackgroundImage bimg = new BackgroundImage(img, BackgroundRepeat.NO_REPEAT, BackgroundRepeat.NO_REPEAT, BackgroundPosition.CENTER, bsize);
+                root.setBackground(new Background(bimg));
+            }
+        } catch (Exception ex) { System.err.println("Nie udało się ustawić tła: " + ex.getMessage()); }
     }
 
     public static void main(String[] args) {

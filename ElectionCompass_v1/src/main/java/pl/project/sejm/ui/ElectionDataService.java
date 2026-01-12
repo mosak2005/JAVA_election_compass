@@ -8,6 +8,7 @@ import java.util.List;
 import pl.project.sejm.SejmUtils;
 import pl.project.sejm.MatchService;
 import pl.project.sejm.MP;
+import pl.project.sejm.SejmApiException;
 
 
 
@@ -15,7 +16,7 @@ public class ElectionDataService {
 
     private final SejmApiClient api = new SejmApiClient();
 
-    public List<Voting> loadVotingPool(int lastSittings) throws Exception {
+    public List<Voting> loadVotingPool(int lastSittings) throws SejmApiException {
         List<Integer> sittings = api.getSittingNumbers();
         if (sittings.isEmpty()) return Collections.emptyList();
 
@@ -28,7 +29,7 @@ public class ElectionDataService {
         }
         return pool;
     }
-    public List<Voting> pickQuizVotings(int lastSittings, int count) throws Exception {
+    public List<Voting> pickQuizVotings(int lastSittings, int count) throws SejmApiException {
     List<Voting> pool = loadVotingPool(lastSittings);
 
     List<Voting> withPrints = new ArrayList<>();
@@ -44,7 +45,7 @@ public class ElectionDataService {
     }
     return withPrints;
     }
-    public MatchService.MatchResult computeMatchResult(List<Voting> quizVotings, java.util.Map<Integer, String> userVotes) throws Exception {
+    public MatchService.MatchResult computeMatchResult(List<Voting> quizVotings, java.util.Map<Integer, String> userVotes) throws SejmApiException {
     java.util.Map<Integer, MP> mpMap = api.getMPMap();
 
     java.util.List<Voting> details = new java.util.ArrayList<>();
@@ -56,4 +57,3 @@ public class ElectionDataService {
     return ms.calculateResult(userVotes, details, mpMap);
 }
 }
-

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CopilotDiffPersistence">
+    <option name="pendingDiffs">
+      <map>
+        <entry key="$PROJECT_DIR$/ElectionCompass_v1/src/main/resources/app.css">
+          <value>
+            <PendingDiffInfo>
+              <option name="filePath" value="$PROJECT_DIR$/ElectionCompass_v1/src/main/resources/app.css" />
+              <option name="updatedContent" value="/* app.css — globalne kolory tekstu&#10;   Ustawia biały kolor tekstu dla większości elementów UI, nadpisuje przyciski na czarny.&#10;*/&#10;&#10;/* Ogólne etykiety i tekst */&#10;.label, .text, .labeled, .text-field, .text-area, .list-cell, .tree-cell, .table-cell, .table-row-cell, .combo-box, .menu, .menu-item, .tab-pane .tab {&#10;  -fx-text-fill: white;&#10;}&#10;&#10;/* Nagłówki tabel */&#10;.table-view .column-header, .table-view .column-header .label {&#10;  -fx-text-fill: white;&#10;}&#10;&#10;/* Linki - zachowaj akcent (możesz zmienić jeśli chcesz) */&#10;.hyperlink {&#10;  -fx-text-fill: -fx-accent;&#10;}&#10;&#10;/* Przyciskom ustawiamy ciemny tekst aby były czytelne na jasnych tłach */&#10;.button {&#10;  -fx-text-fill: black;&#10;}&#10;&#10;/* Jeśli chcesz dodatkowo przyciemnić tło paneli, możesz odkomentować poniżej:&#10;.root {&#10;  -fx-background-color: rgba(0,0,0,0.2);&#10;}&#10;*/&#10;" />
+            </PendingDiffInfo>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>

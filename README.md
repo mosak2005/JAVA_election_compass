@@ -1,1 +1,2 @@
-# JAVA_election_compass
+# ElectionCompass_v1 — instrukcja uruchomienia
+
