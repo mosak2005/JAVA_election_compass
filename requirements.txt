@@ -1,0 +1,7 @@
+openjdk==17
+maven==3.11.0
+javafx-sdk==21.0.5
+javafx-maven-plugin==0.0.8
+jackson-databind==2.15.2
+jackson-core==2.15.2
+jackson-annotations==2.15.2
