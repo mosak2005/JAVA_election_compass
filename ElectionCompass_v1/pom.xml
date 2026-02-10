@@ -71,6 +71,10 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>pl.project.sejm.ui.App</mainClass>
+                    <options>
+                        <option>--enable-native-access=javafx.graphics</option>
+                        <option>--add-opens=java.base/sun.misc=ALL-UNNAMED</option>
+                    </options>
                 </configuration>
             </plugin>
         </plugins>

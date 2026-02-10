@@ -1,44 +1,61 @@
 package pl.project.sejm.ui;
 
+import java.net.URL;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
 import javafx.application.Application;
 import javafx.application.HostServices;
-import javafx.beans.property.SimpleDoubleProperty;
-import javafx.beans.property.SimpleIntegerProperty;
-import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
-import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
-import javafx.scene.control.cell.PropertyValueFactory;
-import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
-import javafx.scene.effect.ColorAdjust;
-import javafx.scene.layout.BackgroundPosition;
-import javafx.scene.layout.BackgroundRepeat;
-import javafx.scene.layout.BackgroundSize;
-import javafx.scene.layout.*;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
-import pl.project.sejm.MatchService;
-import pl.project.sejm.Print;
-import pl.project.sejm.SejmApiClient;
-import pl.project.sejm.SejmUtils;
-import pl.project.sejm.VoteDetail;
-import pl.project.sejm.Voting;
 
-import java.util.*;
-import java.util.concurrent.*;
+import pl.project.sejm.MatchService;
+import pl.project.sejm.SejmApiClient;
+import pl.project.sejm.Voting;
+import pl.project.sejm.ui.components.BackgroundManager;
+import pl.project.sejm.ui.components.BillInfoDialog;
+import pl.project.sejm.ui.components.Buttons;
+import pl.project.sejm.ui.components.ErrorHandler;
+import pl.project.sejm.ui.components.ScreenManager;
+import pl.project.sejm.ui.components.Tables;
+import pl.project.sejm.ui.components.TaskManager;
+import pl.project.sejm.ui.model.BillInfo;
+import pl.project.sejm.ui.model.ClubDiscRow;
+import pl.project.sejm.ui.model.ClubRow;
+import pl.project.sejm.ui.model.DisciplineReport;
+import pl.project.sejm.ui.model.QuizHistoryEntry;
+import pl.project.sejm.ui.model.RebelRow;
+import pl.project.sejm.ui.styles.UiConstants;
+import pl.project.sejm.ui.styles.UiStyles;
+import pl.project.sejm.ui.tasks.BillInfoLoadingTask;
+import pl.project.sejm.ui.tasks.DisciplineScanTask;
+import pl.project.sejm.ui.tasks.QuizLoadingTask;
+import pl.project.sejm.ui.tasks.ResultsComputingTask;
+
 
 public class App extends Application {
 
     private final ElectionDataService dataService = new ElectionDataService();
     private final SejmApiClient api = new SejmApiClient();
+    private final DisciplineAnalyzer disciplineAnalyzer = new DisciplineAnalyzer();
 
     private HostServices hostServices;
-
-    private static final int TERM = 10;
-    private static final String PRINT_WEB_PREFIX = "https://www.sejm.gov.pl/sejm" + TERM + ".nsf/druk.xsp?nr=";
+    private TaskManager taskManager;
+    private BackgroundManager backgroundManager;
+    private ScreenManager screenManager;
 
     private List<Voting> quiz = new ArrayList<>();
     private int index = 0;
@@ -58,12 +75,14 @@ public class App extends Application {
 
     private Button startQuizBtn;
     private Button disciplineBtn;
+    private Spinner<Integer> sittingsSpinner;
 
     private Label counter;
     private Label title;
     private Button backBtn;
-    private Button yesBtn, noBtn, abstainBtn;
-
+    private Button yesBtn;
+    private Button noBtn;
+    private Button abstainBtn;
     private Button billInfoBtn;
 
     private TableView<ClubRow> clubTable;
@@ -75,141 +94,220 @@ public class App extends Application {
     private TableView<RebelRow> rebelTable;
     private Button discBackBtn;
 
-    private Task<?> runningTask;
-
-    private static final int DETAILS_THREADS = 8;
-    private static final double BACKGROUND_BRIGHTNESS = -0.6;
+    private final List<QuizHistoryEntry> quizHistory = new ArrayList<>();
+    private VBox historyScreen;
+    private TableView<QuizHistoryEntry> historyTable;
 
     @Override
     public void start(Stage stage) {
         hostServices = getHostServices();
+        initializeUI();
+        setupStage(stage);
+    }
 
-        Label header = new Label("Election Compass");
-        header.setStyle("-fx-font-size: 26px; -fx-font-weight: bold; -fx-text-fill: white;");
 
-        status = new Label("Status: gotowy");
-        status.setStyle("-fx-opacity: 0.85; -fx-text-fill: white;");
+    private void initializeUI() {
+        Label header = new Label(UiConstants.APP_TITLE);
+        header.setStyle(UiStyles.WHITE_TEXT_BOLD);
+
+        status = new Label(UiConstants.STATUS_READY);
+        status.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
         progressBar = new ProgressBar(0);
         progressBar.setMaxWidth(Double.MAX_VALUE);
+        progressBar.setPrefHeight(6);
+        progressBar.setMinHeight(6);
+        progressBar.setStyle(UiStyles.PROGRESS_BAR);
         progressBar.setVisible(false);
         progressBar.setManaged(false);
 
-        VBox top = new VBox(10, header, status, progressBar, new Separator());
-        top.setPadding(new Insets(20, 24, 10, 24));
+        Separator separator = new Separator();
+        separator.setStyle(UiStyles.SEPARATOR);
+        
+        VBox top = new VBox(UiConstants.SPACING_MEDIUM, header, status, progressBar, separator);
+        top.setPadding(new Insets(UiConstants.PADDING_TOP, UiConstants.PADDING_SIDES, 
+                UiConstants.PADDING_BOTTOM, UiConstants.PADDING_SIDES));
+
+        List<Button> buttonsToDisable = new ArrayList<>();
+        taskManager = new TaskManager(status, progressBar, buttonsToDisable);
 
         buildStartScreen();
         buildQuizScreen();
         buildResultsScreen();
         buildDisciplineScreen();
+        buildHistoryScreen();
 
-        screens = new StackPane(startScreen, quizScreen, resultsScreen, disciplineScreen);
-        screens.setPadding(new Insets(10, 24, 24, 24));
+        buttonsToDisable.add(startQuizBtn);
+        buttonsToDisable.add(disciplineBtn);
+        buttonsToDisable.add(goDisciplineFromResultsBtn);
 
+        screens = new StackPane(startScreen, quizScreen, resultsScreen, disciplineScreen, historyScreen);
+        screens.setPadding(new Insets(UiConstants.SPACING_MEDIUM, UiConstants.PADDING_SIDES, 
+                UiConstants.PADDING_SIDES, UiConstants.PADDING_SIDES));
+
+        screenManager = new ScreenManager(List.of(startScreen, quizScreen, resultsScreen, disciplineScreen, historyScreen));
         showStartScreen();
 
         root = new BorderPane();
         root.setTop(top);
         root.setCenter(screens);
 
+        setupBackground();
+    }
+
+    // tlo
+    private void setupBackground() {
         backgroundImageView = new ImageView();
         backgroundImageView.setPreserveRatio(false);
         backgroundImageView.setSmooth(true);
         backgroundImageView.setMouseTransparent(true);
 
-        try {
-            java.net.URL defaultBg = getClass().getResource("/background.jpg");
-            if (defaultBg != null) {
-                setBackgroundImage("classpath:/background.jpg");
-            } else {
-                java.net.URL defaultPng = getClass().getResource("/background.png");
-                if (defaultPng != null) setBackgroundImage("classpath:/background.png");
-            }
-        } catch (Exception ignored) {}
+        backgroundManager = new BackgroundManager(backgroundImageView, root, getClass());
 
+        try {
+            URL defaultBg = getClass().getResource("/background.jpg");
+            if (defaultBg != null) {
+                backgroundManager.setBackgroundImage("classpath:/background.jpg");
+            } else {
+                URL defaultPng = getClass().getResource("/background.png");
+                if (defaultPng != null) {
+                    backgroundManager.setBackgroundImage("classpath:/background.png");
+                }
+            }
+        } catch (Exception ignored) {
+
+        }
+    }
+
+
+    private void setupStage(Stage stage) {
         StackPane container = new StackPane(backgroundImageView, root);
-        Scene scene = new Scene(container, 900, 660);
+        Scene scene = new Scene(container, UiConstants.WINDOW_WIDTH, UiConstants.WINDOW_HEIGHT);
 
         backgroundImageView.fitWidthProperty().bind(scene.widthProperty());
         backgroundImageView.fitHeightProperty().bind(scene.heightProperty());
 
-        stage.setTitle("Election Compass");
+        stage.setTitle(UiConstants.APP_TITLE);
         stage.setScene(scene);
-        scene.setOnKeyPressed(e -> {
-            if (!quizScreen.isVisible()) return;
-
-            switch (e.getCode()) {
-                case DIGIT1, NUMPAD1 -> { if (!yesBtn.isDisable()) yesBtn.fire(); }
-                case DIGIT2, NUMPAD2 -> { if (!noBtn.isDisable()) noBtn.fire(); }
-                case DIGIT3, NUMPAD3 -> { if (!abstainBtn.isDisable()) abstainBtn.fire(); }
-                case BACK_SPACE -> { if (!backBtn.isDisable()) backBtn.fire(); }
-            }
-        });
         stage.show();
     }
 
+    // Buduje ekran startowy
     private void buildStartScreen() {
         Label info = new Label(
                 "Quiz: wylosuj 10 głosowań i zobacz zgodność z klubami.\n" +
                         "Dyscyplina: policz spójność klubów i 'buntowników' (wolniejsze, pobiera dużo danych)."
         );
         info.setWrapText(true);
-        info.setMaxWidth(720);
-        info.setStyle("-fx-text-fill: white;");
+        info.setMaxWidth(UiConstants.MAX_WIDTH_INFO);
+        info.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
-        startQuizBtn = new Button("Start quiz");
+        Label sittingsLabel = new Label("Ostatnie posiedzeń:");
+        sittingsLabel.setStyle(UiStyles.WHITE_TEXT_BOLD);
+
+        sittingsSpinner = new Spinner<>(1, 50, UiConstants.QUIZ_LAST_SITTINGS);
+        sittingsSpinner.setEditable(true);
+        sittingsSpinner.setPrefWidth(80);
+        sittingsSpinner.setStyle(
+                "-fx-background-color: rgba(255,255,255,0.15);" +
+                "-fx-background-radius: 6px;"
+        );
+        sittingsSpinner.getEditor().setStyle(
+                "-fx-text-fill: white; -fx-font-weight: bold; -fx-background-color: transparent;"
+        );
+
+        sittingsSpinner.getEditor().setTextFormatter(new TextFormatter<>(change -> {
+            String newText = change.getControlNewText();
+            if (newText.isEmpty()) {
+                return change;
+            }
+            if (!newText.matches("\\d{1,2}")) {
+                return null;
+            }
+            int val = Integer.parseInt(newText);
+            if (val < 1 || val > 50) {
+                return null;
+            }
+            return change;
+        }));
+
+        sittingsSpinner.getEditor().focusedProperty().addListener((obs, wasFocused, isFocused) -> {
+            if (!isFocused && sittingsSpinner.getEditor().getText().isEmpty()) {
+                sittingsSpinner.getValueFactory().setValue(UiConstants.QUIZ_LAST_SITTINGS);
+            }
+        });
+
+        HBox sittingsRow = new HBox(UiConstants.SPACING_MEDIUM, sittingsLabel, sittingsSpinner);
+        sittingsRow.setAlignment(Pos.CENTER);
+
+        startQuizBtn = Buttons.createPrimaryButton("🚀 Start quiz", "Rozpocznij quiz z losowymi głosowaniami");
         startQuizBtn.setDefaultButton(true);
         startQuizBtn.setOnAction(e -> startQuiz());
 
-        disciplineBtn = new Button("Dyscyplina partyjna (ostatnie 10 posiedzeń)");
-        disciplineBtn.setOnAction(e -> runDisciplineScan(10));
+        disciplineBtn = Buttons.createPrimaryButton("📊 Dyscyplina partyjna",
+                "Analizuje spójność głosowań klubów w wybranej liczbie posiedzeń");
+        disciplineBtn.setOnAction(e -> runDisciplineScan(getSelectedSittings()));
 
-        VBox buttons = new VBox(10, startQuizBtn, disciplineBtn);
+        Button historyBtn = Buttons.createSecondaryButton("📋 Historia wyników");
+        historyBtn.setOnAction(e -> showHistoryScreen());
+
+        VBox buttons = new VBox(UiConstants.SPACING_BUTTONS, startQuizBtn, disciplineBtn, historyBtn);
         buttons.setAlignment(Pos.CENTER);
 
-        startScreen = new VBox(16, info, buttons);
+        startScreen = new VBox(UiConstants.SPACING_XXLARGE, info, sittingsRow, buttons);
         startScreen.setAlignment(Pos.CENTER);
-        startScreen.setPadding(new Insets(20));
+        startScreen.setPadding(new Insets(30));
     }
 
+    // Zwraca liczbę posiedzeń wybraną przez uzytkownika
+    private int getSelectedSittings() {
+        try {
+            sittingsSpinner.commitValue();
+            return sittingsSpinner.getValue();
+        } catch (Exception e) {
+            return UiConstants.QUIZ_LAST_SITTINGS;
+        }
+    }
+
+    // Buduje ekran quizu
     private void buildQuizScreen() {
         counter = new Label("");
-        counter.setStyle("-fx-font-size: 14px; -fx-opacity: 0.8; -fx-text-fill: white;");
+        counter.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
         title = new Label("");
         title.setWrapText(true);
-        title.setStyle("-fx-font-size: 18px; -fx-font-weight: 600; -fx-text-fill: white;");
-        title.setMaxWidth(820);
+        title.setMaxWidth(UiConstants.MAX_WIDTH_TITLE);
+        title.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
-        billInfoBtn = new Button("O czym jest ustawa? (druki)");
+        billInfoBtn = Buttons.createSecondaryButton("📄 O czym jest ustawa? (druki)");
         billInfoBtn.setOnAction(e -> showBillInfoForCurrentQuestion());
         billInfoBtn.setDisable(true);
 
-        yesBtn = new Button("TAK");
-        noBtn = new Button("NIE");
-        abstainBtn = new Button("WSTRZYMUJĘ");
+        yesBtn = Buttons.createYesButton("✓ TAK");
+        noBtn = Buttons.createNoButton("✗ NIE");
+        abstainBtn = Buttons.createAbstainButton("⊘ WSTRZYMUJĘ");
 
         yesBtn.setOnAction(e -> answer("YES"));
         noBtn.setOnAction(e -> answer("NO"));
         abstainBtn.setOnAction(e -> answer("ABSTAIN"));
 
-        HBox voteButtons = new HBox(10, yesBtn, noBtn, abstainBtn);
+        HBox voteButtons = new HBox(UiConstants.SPACING_VOTE_BUTTONS, yesBtn, noBtn, abstainBtn);
         voteButtons.setAlignment(Pos.CENTER);
 
-        backBtn = new Button("← Cofnij");
+        backBtn = Buttons.createNavButton("← Cofnij");
         backBtn.setOnAction(e -> goBack());
         backBtn.setDisable(true);
 
-        Button quitBtn = new Button("Zakończ");
+        Button quitBtn = Buttons.createNavButton("🏠 Zakończ");
         quitBtn.setOnAction(e -> showStartScreen());
 
-        HBox nav = new HBox(10, backBtn, quitBtn);
+        HBox nav = new HBox(UiConstants.SPACING_NAV, backBtn, quitBtn);
         nav.setAlignment(Pos.CENTER);
 
-        VBox questionBox = new VBox(12, counter, title, billInfoBtn, voteButtons, nav);
+        VBox questionBox = new VBox(UiConstants.SPACING_LARGE, counter, title, billInfoBtn, voteButtons, nav);
         questionBox.setAlignment(Pos.CENTER);
-        questionBox.setPadding(new Insets(20));
-        questionBox.setMaxWidth(860);
+        questionBox.setMaxWidth(UiConstants.MAX_WIDTH_QUESTION_BOX);
+        questionBox.setPadding(new Insets(30));
 
         quizScreen = new VBox(questionBox);
         quizScreen.setAlignment(Pos.CENTER);
@@ -217,146 +315,131 @@ public class App extends Application {
         setVotingButtonsEnabled(false);
     }
 
+    // Buduje ekran wyników
     private void buildResultsScreen() {
         Label resTitle = new Label("Wyniki");
-        resTitle.setStyle("-fx-font-size: 20px; -fx-font-weight: 700; -fx-text-fill: white;");
+        resTitle.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
-        clubTable = new TableView<>();
-        clubTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-        clubTable.setPrefHeight(320);
-
-        TableColumn<ClubRow, String> clubCol = new TableColumn<>("Klub");
-        clubCol.setCellValueFactory(new PropertyValueFactory<>("club"));
-
-        TableColumn<ClubRow, Double> pctCol = new TableColumn<>("Zgodność");
-        pctCol.setCellValueFactory(new PropertyValueFactory<>("pct"));
-        pctCol.setCellFactory(col -> new TableCell<>() {
-            @Override protected void updateItem(Double item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" : String.format(Locale.US, "%.2f%%", item));
-            }
-        });
-
-        clubTable.getColumns().addAll(clubCol, pctCol);
+        clubTable = Tables.createClubResultsTable();
+        clubTable.setPrefHeight(UiConstants.TABLE_HEIGHT_CLUBS);
 
         bestMpLabel = new Label("");
-        bestMpLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 600; -fx-text-fill: white;");
+        bestMpLabel.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
-        againBtn = new Button("Nowy quiz");
+        againBtn = Buttons.createPrimaryButton("🔄 Nowy quiz", "Rozpocznij nowy quiz z innymi pytaniami");
         againBtn.setOnAction(e -> startQuiz());
 
-        goDisciplineFromResultsBtn = new Button("Dyscyplina partyjna");
-        goDisciplineFromResultsBtn.setOnAction(e -> runDisciplineScan(10));
+        goDisciplineFromResultsBtn = Buttons.createPrimaryButton("📊 Dyscyplina partyjna", 
+                "Przejdź do analizy dyscypliny partyjnej");
+        goDisciplineFromResultsBtn.setOnAction(e -> runDisciplineScan(getSelectedSittings()));
 
-        Button backToStartBtn = new Button("Wróć do startu");
+        Button historyFromResultsBtn = Buttons.createSecondaryButton("📋 Historia");
+        historyFromResultsBtn.setOnAction(e -> showHistoryScreen());
+
+        Button backToStartBtn = Buttons.createNavButton("🏠 Wróć do startu");
         backToStartBtn.setOnAction(e -> showStartScreen());
 
-        HBox bottom = new HBox(10, againBtn, goDisciplineFromResultsBtn, backToStartBtn);
+        HBox bottom = new HBox(UiConstants.SPACING_BUTTONS, againBtn, goDisciplineFromResultsBtn, historyFromResultsBtn, backToStartBtn);
         bottom.setAlignment(Pos.CENTER);
 
-        resultsScreen = new VBox(14, resTitle, clubTable, bestMpLabel, bottom);
+        resultsScreen = new VBox(UiConstants.SPACING_XLARGE, resTitle, clubTable, bestMpLabel, bottom);
         resultsScreen.setAlignment(Pos.CENTER);
-        resultsScreen.setPadding(new Insets(20));
-        resultsScreen.setMaxWidth(860);
+        resultsScreen.setMaxWidth(UiConstants.MAX_WIDTH_RESULTS);
+        resultsScreen.setPadding(new Insets(30));
     }
 
+    // Buduje ekran dyscypliny 
     private void buildDisciplineScreen() {
-        Label t = new Label("Dyscyplina partyjna");
-        t.setStyle("-fx-font-size: 20px; -fx-font-weight: 700; -fx-text-fill: white;");
+        Label title = new Label("Dyscyplina partyjna");
+        title.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
         Label hint = new Label("Spójność = jak często klub głosuje jednym głosem (średnio po głosowaniach).");
-        hint.setStyle("-fx-opacity: 0.85; -fx-text-fill: white;");
         hint.setWrapText(true);
-        hint.setMaxWidth(820);
+        hint.setMaxWidth(UiConstants.MAX_WIDTH_TITLE);
+        hint.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
-        discClubTable = new TableView<>();
-        discClubTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-        discClubTable.setPrefHeight(260);
-
-        TableColumn<ClubDiscRow, String> c1 = new TableColumn<>("Klub");
-        c1.setCellValueFactory(new PropertyValueFactory<>("club"));
-
-        TableColumn<ClubDiscRow, Double> c2 = new TableColumn<>("Spójność średnio");
-        c2.setCellValueFactory(new PropertyValueFactory<>("avg"));
-        c2.setCellFactory(col -> new TableCell<>() {
-            @Override protected void updateItem(Double item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? "" : String.format(Locale.US, "%.2f%%", item));
-            }
-        });
-
-        TableColumn<ClubDiscRow, Integer> c3 = new TableColumn<>("Głosowań");
-        c3.setCellValueFactory(new PropertyValueFactory<>("count"));
-
-        discClubTable.getColumns().addAll(c1, c2, c3);
+        discClubTable = Tables.createDisciplineClubsTable();
+        discClubTable.setPrefHeight(UiConstants.TABLE_HEIGHT_DISCIPLINE_CLUBS);
 
         Label rebelsLabel = new Label("Top buntowników (liczymy tylko głosowania, gdzie klub był ≥75% zgodny):");
-        rebelsLabel.setStyle("-fx-opacity: 0.85; -fx-text-fill: white;");
+        rebelsLabel.setStyle(UiStyles.WHITE_TEXT_BOLD);
 
-        rebelTable = new TableView<>();
-        rebelTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-        rebelTable.setPrefHeight(220);
+        rebelTable = Tables.createRebelsTable();
+        rebelTable.setPrefHeight(UiConstants.TABLE_HEIGHT_REBELS);
 
-        TableColumn<RebelRow, String> r1 = new TableColumn<>("Poseł");
-        r1.setCellValueFactory(new PropertyValueFactory<>("name"));
-
-        TableColumn<RebelRow, String> r2 = new TableColumn<>("Klub");
-        r2.setCellValueFactory(new PropertyValueFactory<>("club"));
-
-        TableColumn<RebelRow, Integer> r3 = new TableColumn<>("Buntów");
-        r3.setCellValueFactory(new PropertyValueFactory<>("rebels"));
-
-        rebelTable.getColumns().addAll(r1, r2, r3);
-
-        discBackBtn = new Button("← Wróć");
+        discBackBtn = Buttons.createNavButton("← Wróć");
         discBackBtn.setOnAction(e -> showStartScreen());
 
-        Button rerunBtn = new Button("Przelicz ponownie");
-        rerunBtn.setOnAction(e -> runDisciplineScan(10));
+        Button rerunBtn = Buttons.createPrimaryButton("🔄 Przelicz ponownie", 
+                "Ponownie oblicz dyscyplinę partyjną");
+        rerunBtn.setOnAction(e -> runDisciplineScan(getSelectedSittings()));
 
-        HBox bottom = new HBox(10, rerunBtn, discBackBtn);
+        HBox bottom = new HBox(UiConstants.SPACING_BUTTONS, rerunBtn, discBackBtn);
         bottom.setAlignment(Pos.CENTER);
 
-        disciplineScreen = new VBox(12, t, hint, discClubTable, rebelsLabel, rebelTable, bottom);
+        disciplineScreen = new VBox(UiConstants.SPACING_LARGE, title, hint, discClubTable, rebelsLabel, rebelTable, bottom);
         disciplineScreen.setAlignment(Pos.CENTER);
-        disciplineScreen.setPadding(new Insets(20));
-        disciplineScreen.setMaxWidth(900);
+        disciplineScreen.setMaxWidth(UiConstants.MAX_WIDTH_DISCIPLINE);
+        disciplineScreen.setPadding(new Insets(30));
     }
 
+    // Buduje ekran historii 
+    private void buildHistoryScreen() {
+        Label histTitle = new Label("Historia wyników");
+        histTitle.setStyle(UiStyles.WHITE_TEXT_BOLD);
+
+        historyTable = Tables.createHistoryTable();
+        historyTable.setPrefHeight(350);
+
+        Label emptyHint = new Label("Brak wyników — ukończ quiz, żeby zobaczyć historię.");
+        emptyHint.setStyle(UiStyles.WHITE_TEXT_BOLD);
+        historyTable.setPlaceholder(emptyHint);
+
+        Button backBtn = Buttons.createNavButton("← Wróć do startu");
+        backBtn.setOnAction(e -> showStartScreen());
+
+        HBox bottomBar = new HBox(backBtn);
+        bottomBar.setAlignment(Pos.CENTER);
+
+        historyScreen = new VBox(UiConstants.SPACING_LARGE, histTitle, historyTable, bottomBar);
+        historyScreen.setAlignment(Pos.CENTER);
+        historyScreen.setMaxWidth(UiConstants.MAX_WIDTH_DISCIPLINE);
+        historyScreen.setPadding(new Insets(30));
+    }
+
+    // Pokazuje historie
+    private void showHistoryScreen() {
+        historyTable.setItems(FXCollections.observableArrayList(quizHistory));
+        screenManager.showScreen(historyScreen);
+    }
+
+    // Pokazuje start
     private void showStartScreen() {
-        cancelRunningTaskIfAny();
-        startScreen.setVisible(true);  startScreen.setManaged(true);
-        quizScreen.setVisible(false);  quizScreen.setManaged(false);
-        resultsScreen.setVisible(false); resultsScreen.setManaged(false);
-        disciplineScreen.setVisible(false); disciplineScreen.setManaged(false);
-        setTopIdle("Status: gotowy");
+        taskManager.cancelRunningTaskIfAny();
+        screenManager.showScreen(startScreen);
+        taskManager.setIdle(UiConstants.STATUS_READY);
         startQuizBtn.setDisable(false);
         disciplineBtn.setDisable(false);
     }
 
+    // Pokazuje quiz
     private void showQuizScreen() {
-        startScreen.setVisible(false); startScreen.setManaged(false);
-        quizScreen.setVisible(true);   quizScreen.setManaged(true);
-        resultsScreen.setVisible(false); resultsScreen.setManaged(false);
-        disciplineScreen.setVisible(false); disciplineScreen.setManaged(false);
+        screenManager.showScreen(quizScreen);
     }
 
+    // Pokazuje wyniki
     private void showResultsScreen() {
-        startScreen.setVisible(false); startScreen.setManaged(false);
-        quizScreen.setVisible(false);  quizScreen.setManaged(false);
-        resultsScreen.setVisible(true); resultsScreen.setManaged(true);
-        disciplineScreen.setVisible(false); disciplineScreen.setManaged(false);
+        screenManager.showScreen(resultsScreen);
     }
 
+    // Pokazuje dyscypline
     private void showDisciplineScreen() {
-        startScreen.setVisible(false); startScreen.setManaged(false);
-        quizScreen.setVisible(false);  quizScreen.setManaged(false);
-        resultsScreen.setVisible(false); resultsScreen.setManaged(false);
-        disciplineScreen.setVisible(true); disciplineScreen.setManaged(true);
+        screenManager.showScreen(disciplineScreen);
     }
 
+    // zaczyna nowy quiz
     private void startQuiz() {
-        cancelRunningTaskIfAny();
+        taskManager.cancelRunningTaskIfAny();
         quiz.clear();
         userVotes.clear();
         index = 0;
@@ -365,37 +448,34 @@ public class App extends Application {
         backBtn.setDisable(true);
         billInfoBtn.setDisable(true);
         counter.setText("");
-        title.setText("Losuję pytania…");
-        Task<List<Voting>> task = new Task<>() {
-            @Override
-            protected List<Voting> call() throws Exception {
-                updateMessage("Status: pobieram i losuję pytania…");
-                updateProgress(-1, 1);
-                return dataService.pickQuizVotings(10, 10);
-            }
-        };
-        bindAndRun(task,
+        title.setText("Losuję pytania");
+
+        QuizLoadingTask task = new QuizLoadingTask(dataService, getSelectedSittings(), UiConstants.QUIZ_QUESTIONS_COUNT);
+        taskManager.bindAndRun(task,
                 () -> {
                     quiz = task.getValue();
                     if (quiz == null || quiz.isEmpty()) {
-                        setTopIdle("Błąd: nie udało się wylosować głosowań.");
+                        taskManager.setIdle("Błąd: nie udało się wylosować głosowań. Możliwe, że brak głosowań z drukami w ostatnich posiedzeniach.");
+                        ErrorHandler.showError("Brak głosowań", 
+                                new Exception("Nie znaleziono wystarczającej liczby głosowań z drukami. Spróbuj ponownie później."));
                         showStartScreen();
                         return;
                     }
                     index = 0;
-                    setTopIdle("Status: odpowiadaj na pytania.");
+                    taskManager.setIdle(UiConstants.STATUS_ANSWERING);
                     setVotingButtonsEnabled(true);
                     billInfoBtn.setDisable(false);
                     showQuestion();
                 },
                 () -> {
-                    setTopIdle("Błąd: nie udało się pobrać/losować pytań.");
-                    showNetworkFriendlyError(task.getException(), "Nie udało się pobrać/losować pytań.");
+                    taskManager.setIdle("Błąd: nie udało się pobrać/losować pytań.");
+                    ErrorHandler.showNetworkFriendlyError(task.getException(), "Nie udało się pobrać/losować pytań.");
                     showStartScreen();
                 }
         );
     }
 
+    // Wyświetla aktualne pytanie quizu
     private void showQuestion() {
         Voting v = quiz.get(index);
         counter.setText("Pytanie " + (index + 1) + " / " + quiz.size());
@@ -404,6 +484,7 @@ public class App extends Application {
         billInfoBtn.setDisable(false);
     }
 
+    // Przetwarza odpowiedź użytkownika.
     private void answer(String voteCode) {
         Voting v = quiz.get(index);
         userVotes.put(v.votingNumber, voteCode);
@@ -415,142 +496,94 @@ public class App extends Application {
         }
     }
 
+    // Cofa się do poprzedniego pytania
     private void goBack() {
-        if (index <= 0) return;
+        if (index <= 0) {
+            return;
+        }
         index--;
         Voting v = quiz.get(index);
         userVotes.remove(v.votingNumber);
         showQuestion();
     }
 
+    // Kończy quiz 
     private void finishAndComputeResults() {
         setVotingButtonsEnabled(false);
         billInfoBtn.setDisable(true);
         counter.setText("");
-        title.setText("Liczenie dopasowania…");
-        Task<MatchService.MatchResult> task = new Task<>() {
-            @Override
-            protected MatchService.MatchResult call() throws Exception {
-                updateMessage("Status: pobieram szczegóły i liczę wynik…");
-                updateProgress(-1, 1);
-                return dataService.computeMatchResult(quiz, userVotes);
-            }
-        };
-        bindAndRun(task,
+        title.setText("Liczenie dopasowania");
+
+        ResultsComputingTask task = new ResultsComputingTask(dataService, quiz, userVotes);
+        taskManager.bindAndRun(task,
                 () -> {
                     MatchService.MatchResult r = task.getValue();
-                    setTopIdle("Status: gotowe ✅");
+                    taskManager.setIdle(UiConstants.STATUS_DONE);
                     List<ClubRow> rows = new ArrayList<>();
-                    for (var c : r.clubsSorted) rows.add(new ClubRow(c.club, c.pct));
+                    for (var c : r.getClubsSorted()) {
+                        rows.add(new ClubRow(c.getClub(), c.getPct()));
+                    }
                     clubTable.setItems(FXCollections.observableArrayList(rows));
                     bestMpLabel.setText(String.format(Locale.US,
-                            "Twój poseł bliźniak: %s (%.2f%%)", r.bestMp, r.bestMpPct));
+                            "Twój poseł bliźniak: %s (%.2f%%)", r.getBestMp(), r.getBestMpPct()));
+
+                    // Zapisz wynik do historii 
+                    String topClub = r.getClubsSorted().isEmpty() ? "—" : r.getClubsSorted().get(0).getClub();
+                    double topClubPct = r.getClubsSorted().isEmpty() ? 0 : r.getClubsSorted().get(0).getPct();
+                    quizHistory.add(new QuizHistoryEntry(
+                            LocalDateTime.now(),
+                            getSelectedSittings(),
+                            quiz.size(),
+                            topClub, topClubPct,
+                            r.getBestMp(), r.getBestMpPct()
+                    ));
+
                     showResultsScreen();
                 },
                 () -> {
-                    setTopIdle("Błąd: nie udało się policzyć wyniku.");
-                    showNetworkFriendlyError(task.getException(), "Nie udało się policzyć wyniku.");
+                    taskManager.setIdle("Błąd: nie udało się policzyć wyniku.");
+                    ErrorHandler.showNetworkFriendlyError(task.getException(), "Nie udało się policzyć wyniku.");
                     showStartScreen();
                 }
         );
     }
 
+    // Włącza/wyłącza przyciski głosowania
     private void setVotingButtonsEnabled(boolean enabled) {
         yesBtn.setDisable(!enabled);
         noBtn.setDisable(!enabled);
         abstainBtn.setDisable(!enabled);
     }
 
+    // Wyświetla informacje o ustawie dla danego pytania
     private void showBillInfoForCurrentQuestion() {
-        if (quiz == null || quiz.isEmpty()) return;
-        if (index < 0 || index >= quiz.size()) return;
+        if (quiz == null || quiz.isEmpty()) {
+            return;
+        }
+        if (index < 0 || index >= quiz.size()) {
+            return;
+        }
         Voting current = quiz.get(index);
         setVotingButtonsEnabled(false);
         backBtn.setDisable(true);
         billInfoBtn.setDisable(true);
-        Task<BillInfo> task = new Task<>() {
-            @Override
-            protected BillInfo call() throws Exception {
-                updateMessage("Status: pobieram opis głosowania…");
-                updateProgress(-1, 1);
-                Voting details = api.getVotingDetails(current.sitting, current.votingNumber);
-                String vTitle = details != null && details.title != null ? details.title : current.title;
-                String topic = details != null ? details.topic : null;
-                if (topic == null || topic.isBlank()) topic = "(Brak pola topic w API dla tego głosowania)";
-                List<String> druki = SejmUtils.extractDruki(vTitle);
-                List<Print> prints = new ArrayList<>();
-                if (!druki.isEmpty()) {
-                    updateMessage("Status: pobieram tytuły druków…");
-                    updateProgress(0, druki.size());
-                    for (int i = 0; i < druki.size(); i++) {
-                        if (isCancelled()) return null;
-                        String nr = druki.get(i);
-                        try {
-                            Print p = api.getPrintDetails(nr);
-                            if (p != null) prints.add(p);
-                        } catch (Exception ignored) {}
-                        updateProgress(i + 1, druki.size());
-                    }
-                }
-                return new BillInfo(vTitle, topic, druki, prints);
-            }
-        };
-        bindAndRun(task,
+
+        BillInfoLoadingTask task = new BillInfoLoadingTask(api, current);
+        taskManager.bindAndRun(task,
                 () -> {
                     BillInfo info = task.getValue();
                     if (info == null) {
-                        setTopIdle("Status: przerwano.");
+                        taskManager.setIdle(UiConstants.STATUS_CANCELLED);
                         restoreQuizControls();
                         return;
                     }
-                    Alert a = new Alert(Alert.AlertType.INFORMATION);
-                    a.setTitle("Informacje o ustawie");
-                    a.setHeaderText(info.title != null ? info.title : "Głosowanie");
-                    Label topicLabel = new Label("OPIS / TOPIC:");
-                    // Kolory białe dla alertu
-                    topicLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: black;");
-                    Label topic = new Label(info.topic == null ? "(brak)" : info.topic);
-                    topic.setWrapText(true);
-                    topic.setStyle("-fx-text-fill: black;");
-                    Label drukiLabel = new Label("DRUKI:");
-                    drukiLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: black;");
-                    VBox drukiBox = new VBox(8);
-                    if (info.druki.isEmpty()) {
-                        Label none = new Label("(nie znaleziono numerów druków w tytule)");
-                        none.setStyle("-fx-text-fill: black;");
-                        drukiBox.getChildren().add(none);
-                    } else {
-                        for (String nr : info.druki) {
-                            String webUrl = PRINT_WEB_PREFIX + nr;
-                            Hyperlink web = new Hyperlink("Druk " + nr);
-                            web.setOnAction(e -> hostServices.showDocument(webUrl));
-                            String titleFromApi = info.prints.stream()
-                                    .filter(p -> nr.equals(p.number))
-                                    .map(p -> p.title)
-                                    .findFirst()
-                                    .orElse(null);
-                            Label tLabel = new Label(titleFromApi != null ? titleFromApi : "");
-                            tLabel.setWrapText(true);
-                            tLabel.setStyle("-fx-opacity: 0.85; -fx-text-fill: black;");
-                            VBox one = new VBox(3, web, tLabel);
-                            one.setPadding(new Insets(4, 0, 4, 0));
-                            drukiBox.getChildren().add(one);
-                        }
-                    }
-                    VBox content = new VBox(10, topicLabel, topic, new Separator(), drukiLabel, drukiBox);
-                    content.setPrefWidth(760);
-                    ScrollPane sp = new ScrollPane(content);
-                    sp.setFitToWidth(true);
-                    sp.setPrefViewportHeight(440);
-                    a.getDialogPane().setContent(sp);
-                    a.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
-                    a.showAndWait();
-                    setTopIdle("Status: odpowiadaj na pytania.");
+                    BillInfoDialog.show(info, hostServices);
+                    taskManager.setIdle(UiConstants.STATUS_ANSWERING);
                     restoreQuizControls();
                 },
                 () -> {
-                    setTopIdle("Błąd: nie udało się pobrać opisu ustawy.");
-                    showNetworkFriendlyError(task.getException(), "Nie udało się pobrać opisu ustawy.");
+                    taskManager.setIdle("Błąd: nie udało się pobrać opisu ustawy.");
+                    ErrorHandler.showNetworkFriendlyError(task.getException(), "Nie udało się pobrać opisu ustawy.");
                     restoreQuizControls();
                 }
         );
@@ -562,258 +595,38 @@ public class App extends Application {
         billInfoBtn.setDisable(false);
     }
 
-    private static class BillInfo {
-        final String title;
-        final String topic;
-        final List<String> druki;
-        final List<Print> prints;
-        BillInfo(String title, String topic, List<String> druki, List<Print> prints) {
-            this.title = title; this.topic = topic;
-            this.druki = druki == null ? List.of() : druki;
-            this.prints = prints == null ? List.of() : prints;
-        }
-    }
-
+    // Uruchamia analizę dyscypliny 
     private void runDisciplineScan(int lastSittings) {
-        cancelRunningTaskIfAny();
+        taskManager.cancelRunningTaskIfAny();
         showDisciplineScreen();
         discClubTable.setItems(FXCollections.observableArrayList());
         rebelTable.setItems(FXCollections.observableArrayList());
-        Task<DisciplineReport> task = new Task<>() {
-            @Override
-            protected DisciplineReport call() throws Exception {
-                updateMessage("Status: pobieram listę posiedzeń…");
-                updateProgress(-1, 1);
-                List<Integer> sittings = api.getSittingNumbers();
-                if (sittings.isEmpty()) return new DisciplineReport(List.of(), List.of());
-                int from = Math.max(0, sittings.size() - lastSittings);
-                List<Integer> recent = sittings.subList(from, sittings.size());
-                updateMessage("Status: zbieram listę głosowań…");
-                updateProgress(-1, 1);
-                List<VotingRef> refs = new ArrayList<>();
-                for (int i = 0; i < recent.size(); i++) {
-                    if (isCancelled()) return null;
-                    int sitting = recent.get(i);
-                    updateMessage(String.format(Locale.US,
-                            "Status: posiedzenie %d/%d — pobieram listę głosowań…",
-                            (i + 1), recent.size()));
-                    List<Voting> votings = api.getVotings(sitting);
-                    for (Voting v : votings) refs.add(new VotingRef(sitting, v.votingNumber));
-                }
-                int total = refs.size();
-                if (total == 0) return new DisciplineReport(List.of(), List.of());
-                updateMessage(String.format(Locale.US,
-                        "Status: pobieram detale głosowań równolegle (%d wątków)…", DETAILS_THREADS));
-                updateProgress(0, total);
-                ExecutorService pool = Executors.newFixedThreadPool(DETAILS_THREADS);
-                CompletionService<VotingDetailsResult> cs = new ExecutorCompletionService<>(pool);
-                for (VotingRef ref : refs) {
-                    cs.submit(() -> {
-                        try {
-                            Voting details = api.getVotingDetails(ref.sitting, ref.votingNumber);
-                            return VotingDetailsResult.ok(details);
-                        } catch (Exception ex) { return VotingDetailsResult.fail(ex); }
-                    });
-                }
-                List<Voting> downloaded = new ArrayList<>(total);
-                int done = 0, failed = 0;
-                try {
-                    for (int i = 0; i < total; i++) {
-                        if (isCancelled()) return null;
-                        VotingDetailsResult r = cs.take().get();
-                        if (r.details != null) downloaded.add(r.details); else failed++;
-                        done++; updateProgress(done, total);
-                        if (done % 25 == 0 || done == total) {
-                            updateMessage(String.format(Locale.US,
-                                    "Status: pobrano detale %d/%d (błędy: %d)…", done, total, failed));
-                        }
-                    }
-                } finally { pool.shutdownNow(); }
-                updateMessage("Status: liczę spójność klubów i buntowników…");
-                updateProgress(-1, 1);
-                Map<String, ClubUnityTracker> clubStats = new HashMap<>();
-                Map<Integer, MPRebelTracker> mpStats = new HashMap<>();
-                for (Voting v : downloaded) {
-                    if (isCancelled()) return null;
-                    processVotingForDiscipline(v, clubStats, mpStats);
-                }
-                List<ClubDisc> clubs = clubStats.entrySet().stream()
-                        .map(e -> new ClubDisc(e.getKey(), e.getValue().getAvg(), e.getValue().votingCount))
-                        .sorted((a, b) -> Double.compare(b.avgUnityPct, a.avgUnityPct))
-                        .toList();
-                List<Rebel> rebels = mpStats.values().stream()
-                        .sorted((a, b) -> Integer.compare(b.rebellionCount, a.rebellionCount))
-                        .limit(10)
-                        .map(x -> new Rebel(
-                                x.name != null && !x.name.isBlank() ? x.name : "Nieznany",
-                                x.club != null ? x.club : "Brak klubu",
-                                x.rebellionCount
-                        )).toList();
-                return new DisciplineReport(clubs, rebels);
-            }
-        };
-        bindAndRun(task,
+
+        DisciplineScanTask task = new DisciplineScanTask(api, lastSittings, disciplineAnalyzer);
+        taskManager.bindAndRun(task,
                 () -> {
                     DisciplineReport rep = task.getValue();
-                    if (rep == null) { setTopIdle("Status: przerwano."); return; }
-                    List<ClubDiscRow> rows = rep.clubsSorted.stream()
-                            .map(x -> new ClubDiscRow(x.club, x.avgUnityPct, x.votingCount))
+                    if (rep == null) {
+                        taskManager.setIdle(UiConstants.STATUS_CANCELLED);
+                        return;
+                    }
+                    List<ClubDiscRow> rows = rep.getClubsSorted().stream()
+                            .map(x -> new ClubDiscRow(x.club(), x.avgUnityPct(), x.votingCount()))
                             .toList();
                     discClubTable.setItems(FXCollections.observableArrayList(rows));
-                    List<RebelRow> rebelRows = rep.topRebels.stream()
-                            .map(x -> new RebelRow(x.name, x.club, x.rebellionCount))
+
+                    List<RebelRow> rebelRows = rep.getTopRebels().stream()
+                            .map(x -> new RebelRow(x.name(), x.club(), x.rebellionCount()))
                             .toList();
                     rebelTable.setItems(FXCollections.observableArrayList(rebelRows));
-                    setTopIdle("Status: gotowe ✅");
+                    taskManager.setIdle(UiConstants.STATUS_DONE);
                 },
                 () -> {
-                    setTopIdle("Błąd: nie udało się policzyć dyscypliny.");
-                    showNetworkFriendlyError(task.getException(), "Nie udało się policzyć dyscypliny.");
+                    taskManager.setIdle("Błąd: nie udało się policzyć dyscypliny.");
+                    ErrorHandler.showNetworkFriendlyError(task.getException(), "Nie udało się policzyć dyscypliny.");
                     showStartScreen();
                 }
         );
-    }
-
-    private void processVotingForDiscipline(Voting v, Map<String, ClubUnityTracker> clubStats, Map<Integer, MPRebelTracker> mpStats) {
-        if (v == null || v.votes == null) return;
-        Map<String, List<VoteDetail>> byClub = new HashMap<>();
-        for (VoteDetail vd : v.votes) byClub.computeIfAbsent(vd.club, k -> new ArrayList<>()).add(vd);
-        for (Map.Entry<String, List<VoteDetail>> entry : byClub.entrySet()) {
-            String club = entry.getKey();
-            if (club == null || "niez.".equalsIgnoreCase(club)) continue;
-            List<VoteDetail> votes = entry.getValue();
-            if (votes.size() < 3) continue;
-            Map<String, Integer> counts = new HashMap<>();
-            for (VoteDetail vd : votes) counts.put(vd.vote, counts.getOrDefault(vd.vote, 0) + 1);
-            String majorityVote = counts.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse("ABSENT");
-            double unity = (double) counts.getOrDefault(majorityVote, 0) / votes.size() * 100.0;
-            clubStats.computeIfAbsent(club, k -> new ClubUnityTracker()).add(unity);
-            if (unity >= 75.0) {
-                for (VoteDetail vd : votes) {
-                    if (!majorityVote.equals(vd.vote) && !"ABSENT".equals(vd.vote)) {
-                        MPRebelTracker tr = mpStats.computeIfAbsent(vd.MP, k -> new MPRebelTracker());
-                        tr.name = ((vd.firstName != null ? vd.firstName : "") + " " + (vd.lastName != null ? vd.lastName : "")).trim();
-                        tr.club = vd.club;
-                        tr.rebellionCount++;
-                    }
-                }
-            }
-        }
-    }
-
-    private void bindAndRun(Task<?> task, Runnable onSuccess, Runnable onFail) {
-        runningTask = task;
-        if (startQuizBtn != null) startQuizBtn.setDisable(true);
-        if (disciplineBtn != null) disciplineBtn.setDisable(true);
-        if (goDisciplineFromResultsBtn != null) goDisciplineFromResultsBtn.setDisable(true);
-        progressBar.setVisible(true); progressBar.setManaged(true);
-        status.textProperty().unbind(); progressBar.progressProperty().unbind();
-        status.textProperty().bind(task.messageProperty());
-        progressBar.progressProperty().bind(task.progressProperty());
-        task.setOnSucceeded(e -> { cleanupTaskBinding(); onSuccess.run(); });
-        task.setOnFailed(e -> { cleanupTaskBinding(); onFail.run(); });
-        task.setOnCancelled(e -> { cleanupTaskBinding(); setTopIdle("Status: przerwano."); });
-        Thread tThread = new Thread(task); tThread.setDaemon(true); tThread.start();
-    }
-
-    private void cleanupTaskBinding() {
-        runningTask = null; status.textProperty().unbind(); progressBar.progressProperty().unbind();
-        progressBar.setVisible(false); progressBar.setManaged(false);
-        if (startQuizBtn != null) startQuizBtn.setDisable(false);
-        if (disciplineBtn != null) disciplineBtn.setDisable(false);
-        if (goDisciplineFromResultsBtn != null) goDisciplineFromResultsBtn.setDisable(false);
-    }
-
-    private void cancelRunningTaskIfAny() {
-        if (runningTask != null) { runningTask.cancel(); runningTask = null; }
-    }
-
-    private void setTopIdle(String text) {
-        status.textProperty().unbind(); status.setText(text);
-        progressBar.progressProperty().unbind(); progressBar.setVisible(false); progressBar.setManaged(false);
-    }
-
-    private void showError(String header, Throwable ex) {
-        Alert a = new Alert(Alert.AlertType.ERROR);
-        a.setTitle("Błąd"); a.setHeaderText(header);
-        a.setContentText(ex == null ? "Nieznany błąd." : String.valueOf(ex.getMessage()));
-        a.showAndWait();
-    }
-
-    private void showNetworkFriendlyError(Throwable ex, String fallbackMessage) {
-        if (ex == null) { showError("Błąd sieci", new Exception(fallbackMessage)); return; }
-        Throwable rootEx = ex; while (rootEx.getCause() != null) rootEx = rootEx.getCause();
-        if (rootEx instanceof pl.project.sejm.SejmApiException) {
-            pl.project.sejm.SejmApiException sae = (pl.project.sejm.SejmApiException) rootEx;
-            if (sae.isNetworkError()) {
-                showError("Problem z połączeniem sieciowym", new Exception("Nie można połączyć się z API. Sprawdź połączenie internetowe i spróbuj ponownie."));
-                return;
-            }
-        }
-        showError(fallbackMessage, ex instanceof Exception ? ex : new Exception(String.valueOf(ex)));
-    }
-
-    public static class ClubRow {
-        private final SimpleStringProperty club = new SimpleStringProperty();
-        private final SimpleDoubleProperty pct = new SimpleDoubleProperty();
-        public ClubRow(String club, double pct) { this.club.set(club); this.pct.set(pct); }
-        public String getClub() { return club.get(); }
-        public double getPct() { return pct.get(); }
-    }
-
-    public static class ClubDiscRow {
-        private final SimpleStringProperty club = new SimpleStringProperty();
-        private final SimpleDoubleProperty avg = new SimpleDoubleProperty();
-        private final SimpleIntegerProperty count = new SimpleIntegerProperty();
-        public ClubDiscRow(String club, double avg, int count) { this.club.set(club); this.avg.set(avg); this.count.set(count); }
-        public String getClub() { return club.get(); }
-        public double getAvg() { return avg.get(); }
-        public int getCount() { return count.get(); }
-    }
-
-    public static class RebelRow {
-        private final SimpleStringProperty name = new SimpleStringProperty();
-        private final SimpleStringProperty club = new SimpleStringProperty();
-        private final SimpleIntegerProperty rebels = new SimpleIntegerProperty();
-        public RebelRow(String name, String club, int rebels) { this.name.set(name); this.club.set(club); this.rebels.set(rebels); }
-        public String getName() { return name.get(); }
-        public String getClub() { return club.get(); }
-        public int getRebels() { return rebels.get(); }
-    }
-
-    private static class VotingRef { final int sitting; final int votingNumber; VotingRef(int sitting, int votingNumber) { this.sitting = sitting; this.votingNumber = votingNumber; } }
-    private static class ClubUnityTracker { double sumOfPercentages = 0; int votingCount = 0; void add(double pct) { sumOfPercentages += pct; votingCount++; } double getAvg() { return votingCount == 0 ? 0 : sumOfPercentages / votingCount; } }
-    private static class MPRebelTracker { String name, club; int rebellionCount = 0; }
-    private static class ClubDisc { final String club; final double avgUnityPct; final int votingCount; ClubDisc(String club, double avgUnityPct, int votingCount) { this.club = club; this.avgUnityPct = avgUnityPct; this.votingCount = votingCount; } }
-    private static class Rebel { final String name; final String club; final int rebellionCount; Rebel(String name, String club, int rebellionCount) { this.name = name; this.club = club; this.rebellionCount = rebellionCount; } }
-    private static class DisciplineReport { final List<ClubDisc> clubsSorted; final List<Rebel> topRebels; DisciplineReport(List<ClubDisc> clubsSorted, List<Rebel> topRebels) { this.clubsSorted = clubsSorted; this.topRebels = topRebels; } }
-    private static class VotingDetailsResult { final Voting details; final Exception error; private VotingDetailsResult(Voting details, Exception error) { this.details = details; this.error = error; } static VotingDetailsResult ok(Voting v) { return new VotingDetailsResult(v, null); } static VotingDetailsResult fail(Exception ex) { return new VotingDetailsResult(null, ex); } }
-
-    public void setBackgroundImage(String path) {
-        if (path == null || path.isBlank() || root == null) return;
-        try {
-            Image img;
-            if (path.startsWith("classpath:")) {
-                String res = path.substring("classpath:".length());
-                java.net.URL url = getClass().getResource(res);
-                if (url == null) throw new IllegalArgumentException("Resource not found: " + res);
-                img = new Image(url.toExternalForm());
-            } else {
-                String urlStr = path;
-                if (!urlStr.startsWith("file:") && !urlStr.startsWith("http:") && !urlStr.startsWith("https:")) urlStr = "file:" + urlStr;
-                img = new Image(urlStr);
-            }
-            if (backgroundImageView != null) {
-                backgroundImageView.setImage(img);
-                ColorAdjust ca = new ColorAdjust();
-                ca.setBrightness(BACKGROUND_BRIGHTNESS);
-                backgroundImageView.setEffect(ca);
-            } else {
-                BackgroundSize bsize = new BackgroundSize(100, 100, true, true, false, true);
-                BackgroundImage bimg = new BackgroundImage(img, BackgroundRepeat.NO_REPEAT, BackgroundRepeat.NO_REPEAT, BackgroundPosition.CENTER, bsize);
-                root.setBackground(new Background(bimg));
-            }
-        } catch (Exception ex) { System.err.println("Nie udało się ustawić tła: " + ex.getMessage()); }
     }
 
     public static void main(String[] args) {

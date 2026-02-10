@@ -2,69 +2,74 @@ package pl.project.sejm;
 
 import java.util.*;
 
-public class MatchService {
+public final class MatchService {
 
-    public static class Stat {
-        public int score = 0;
-        public int total = 0;
-        public double getPct() { return total == 0 ? 0 : (double) score / total * 100; }
+    private static final class Stat {
+        private double score = 0;
+        private int total = 0;
+
+        private double getPct() {
+            return total == 0 ? 0 : score / total * 100;
+        }
     }
 
-    public static class ClubResult {
-        public final String club;
-        public final double pct;
+    public static final class ClubResult {
+        private final String club;
+        private final double pct;
+
         public ClubResult(String club, double pct) {
             this.club = club;
             this.pct = pct;
         }
+
+        public String getClub() { return club; }
+        public double getPct() { return pct; }
     }
 
-    public static class MatchResult {
-        public final List<ClubResult> clubsSorted; 
-        public final String bestMp;
-        public final double bestMpPct;
+    public static final class MatchResult {
+        private final List<ClubResult> clubsSorted;
+        private final String bestMp;
+        private final double bestMpPct;
 
         public MatchResult(List<ClubResult> clubsSorted, String bestMp, double bestMpPct) {
-            this.clubsSorted = clubsSorted;
+            this.clubsSorted = List.copyOf(clubsSorted);
             this.bestMp = bestMp;
             this.bestMpPct = bestMpPct;
         }
+
+        public List<ClubResult> getClubsSorted() { return clubsSorted; }
+        public String getBestMp() { return bestMp; }
+        public double getBestMpPct() { return bestMpPct; }
     }
 
     public MatchResult calculateResult(Map<Integer, String> userVotes, List<Voting> details, Map<Integer, MP> mpMap) {
+        
         Map<String, Stat> clubStats = new HashMap<>();
         Map<String, Stat> mpStats = new HashMap<>();
 
         for (Voting v : details) {
+            if (v == null || v.votes == null) {
+                continue;
+            }
             String myVote = userVotes.get(v.votingNumber);
-            if (v.votes == null) continue;
 
             for (VoteDetail vd : v.votes) {
-                String mpKey;
-                try {
-                    MP mpInfo = (vd != null && mpMap != null) ? mpMap.get(vd.MP) : null;
-                    if (mpInfo != null) {
-                        mpKey = mpInfo.firstName + " " + mpInfo.lastName + " (" + (mpInfo.club != null ? mpInfo.club : "Brak klubu") + ")";
-                    } else {
-                        mpKey = (vd != null ? (vd.firstName + " " + vd.lastName + " (" + (vd.club != null ? vd.club : "Brak klubu") + ")") : "Nieznany");
-                    }
-                } catch (Exception ex) {
-                    mpKey = "Nieznany";
+                if (vd == null) {
+                    continue;
                 }
 
-                String clubKey = (vd != null && vd.club != null) ? vd.club : "Brak klubu";
+                String mpKey = buildMpKey(vd, mpMap);
+                String clubKey = vd.club != null ? vd.club : "Brak klubu";
 
-                clubStats.putIfAbsent(clubKey, new Stat());
-                mpStats.putIfAbsent(mpKey, new Stat());
+                clubStats.computeIfAbsent(clubKey, k -> new Stat());
+                mpStats.computeIfAbsent(mpKey, k -> new Stat());
 
-                boolean match = myVote != null && vd != null && vd.vote != null && vd.vote.equalsIgnoreCase(myVote);
+                double points = computePoints(myVote, vd.vote);
 
                 clubStats.get(clubKey).total++;
                 mpStats.get(mpKey).total++;
-                if (match) {
-                    clubStats.get(clubKey).score++;
-                    mpStats.get(mpKey).score++;
-                }
+                clubStats.get(clubKey).score += points;
+                mpStats.get(mpKey).score += points;
             }
         }
 
@@ -88,5 +93,39 @@ public class MatchService {
         }
 
         return new MatchResult(clubs, bestMp, bestPct);
+    }
+
+    // zgodnosc 1pkt, sprzecznosc 0pkt, wstrzymanie się 0.5pkt
+    private static double computePoints(String myVote, String mpVote) {
+        if (myVote == null || mpVote == null) {
+            return 0;
+        }
+        if (mpVote.equalsIgnoreCase(myVote)) {
+            return 1.0;
+        }
+        if ("ABSTAIN".equalsIgnoreCase(myVote) || "ABSTAIN".equalsIgnoreCase(mpVote)) {
+            return 0.5;
+        }
+        return 0;
+    }
+
+    private String buildMpKey(VoteDetail vd, Map<Integer, MP> mpMap) {
+        MP mpInfo = (mpMap != null) ? mpMap.get(vd.mpId) : null;
+
+        String firstName;
+        String lastName;
+        String club;
+
+        if (mpInfo != null) {
+            firstName = mpInfo.firstName != null ? mpInfo.firstName : "";
+            lastName = mpInfo.lastName != null ? mpInfo.lastName : "";
+            club = mpInfo.club != null ? mpInfo.club : "Brak klubu";
+        } else {
+            firstName = vd.firstName != null ? vd.firstName : "";
+            lastName = vd.lastName != null ? vd.lastName : "";
+            club = vd.club != null ? vd.club : "Brak klubu";
+        }
+
+        return firstName + " " + lastName + " (" + club + ")";
     }
 }
